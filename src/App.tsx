@@ -850,7 +850,9 @@ export function App() {
   const [browserRuntimeUpdates, setBrowserRuntimeUpdates] = useState<BrowserRuntimeUpdateStatus>({ status: "idle", runtimes: [] });
   const [updatePromptDismissedVersion, setUpdatePromptDismissedVersion] = useState<string>();
   const [runtimeUpdatePrompt, setRuntimeUpdatePrompt] = useState<BrowserRuntimeUpdateEntry[]>();
-  const [runtimeUpdatePromptDismissed, setRuntimeUpdatePromptDismissed] = useState("");
+  const [runtimeUpdatePromptDismissed, setRuntimeUpdatePromptDismissed] = useState(
+    () => localStorage.getItem("nextbrowser.runtimeUpdatePromptDismissed") ?? "",
+  );
   const [clawbrowserCloseConfirm, setClawbrowserCloseConfirm] = useState<{
     runtimes: BrowserRuntimeUpdateEntry["runtime"][];
     currentName?: string;
@@ -1029,7 +1031,11 @@ export function App() {
     });
   };
   const dismissBrowserRuntimeUpdatePrompt = () => {
-    if (runtimeUpdatePrompt) setRuntimeUpdatePromptDismissed(browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes));
+    if (runtimeUpdatePrompt) {
+      const signature = browserRuntimeUpdateSignature(browserRuntimeUpdates.runtimes);
+      setRuntimeUpdatePromptDismissed(signature);
+      localStorage.setItem("nextbrowser.runtimeUpdatePromptDismissed", signature);
+    }
     setRuntimeUpdatePrompt(undefined);
   };
   const beginBrowserRuntimeInstall = (runtimes: BrowserRuntimeUpdateEntry["runtime"][], currentName?: string) => {

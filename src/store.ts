@@ -865,6 +865,46 @@ const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
 // process, credential change outside logout()), that tells us the just-loaded
 // caches are foreign and must not reach syncProjects(). See NB-25647DEA.
 const CACHED_ACCOUNT_OWNER_KEY = "cachedAccountOwnerId";
+const ACCOUNT_SCHEDULE_ARCHIVE_FILE = "scheduled-runs-by-account.json";
+const ACCOUNT_AUTHORING_ARCHIVE_FILE = "authored-content-by-account.json";
+
+// Schedules are local-only. The active-account cache is wiped on sign-out to
+// prevent another account from seeing it, so retain a separate copy keyed by
+// the verified account owner before that wipe.
+async function archiveAccountSchedules(ownerId: string, runs: ScheduledRun[]): Promise<void> {
+  const archive = await loadJson<Record<string, ScheduledRun[]>>(ACCOUNT_SCHEDULE_ARCHIVE_FILE, {});
+  archive[ownerId] = serializeSchedules(runs);
+  await saveJson(ACCOUNT_SCHEDULE_ARCHIVE_FILE, archive);
+}
+
+async function restoreAccountSchedules(ownerId: string): Promise<void> {
+  const archive = await loadJson<Record<string, ScheduledRun[]>>(ACCOUNT_SCHEDULE_ARCHIVE_FILE, {});
+  if (!Object.prototype.hasOwnProperty.call(archive, ownerId)) return;
+  const runs = Array.isArray(archive[ownerId]) ? archive[ownerId].map(normalizeSchedule) : [];
+  useStore.setState({ scheduledRuns: runs });
+  await saveJson("scheduled-runs.json", serializeSchedules(runs));
+}
+
+// Private scripts and workflow skills have a cloud copy, but their editable
+// source lives in the local cache. Preserve that source across sign-out while
+// keeping it isolated from other accounts.
+async function archiveAccountAuthoredContent(ownerId: string, scripts: CustomScript[], skills: BrowserWorkflowSkill[]): Promise<void> {
+  const archive = await loadJson<Record<string, { scripts: CustomScript[]; skills: BrowserWorkflowSkill[] }>>(ACCOUNT_AUTHORING_ARCHIVE_FILE, {});
+  archive[ownerId] = { scripts, skills };
+  await saveJson(ACCOUNT_AUTHORING_ARCHIVE_FILE, archive);
+}
+
+async function restoreAccountAuthoredContent(ownerId: string): Promise<void> {
+  const archive = await loadJson<Record<string, { scripts: CustomScript[]; skills: BrowserWorkflowSkill[] }>>(ACCOUNT_AUTHORING_ARCHIVE_FILE, {});
+  if (!Object.prototype.hasOwnProperty.call(archive, ownerId)) return;
+  const scripts = Array.isArray(archive[ownerId]?.scripts) ? archive[ownerId].scripts.map(normalizeScript) : [];
+  const skills = Array.isArray(archive[ownerId]?.skills) ? archive[ownerId].skills.map(normalizeWorkflowSkill) : [];
+  useStore.setState({ customScripts: scripts, localSkills: skills });
+  await Promise.all([
+    saveJson("custom-scripts.json", serializeScripts(scripts)),
+    saveJson("local-skills.json", serializeWorkflowSkills(skills)),
+  ]);
+}
 
 function activeConversationStorageKey(agentId: string, workspaceId?: string): string {
   return `activeConversationId:${agentId}:${workspaceId || "none"}`;
@@ -1038,6 +1078,8 @@ async function guardAgainstForeignAccountCache(): Promise<void> {
   if (!ownerId) return;
   const cachedOwnerId = localStorage.getItem(CACHED_ACCOUNT_OWNER_KEY) || undefined;
   if (cachedOwnerId && cachedOwnerId !== ownerId) {
+    await archiveAccountSchedules(cachedOwnerId, useStore.getState().scheduledRuns);
+    await archiveAccountAuthoredContent(cachedOwnerId, useStore.getState().customScripts, useStore.getState().localSkills);
     accountEpoch += 1;
     profileRefreshGeneration += 1;
     trackEvent("foreign_account_cache_cleared");
@@ -1045,6 +1087,12 @@ async function guardAgainstForeignAccountCache(): Promise<void> {
     useStore.setState(emptyAccountOwnedCaches());
   }
   localStorage.setItem(CACHED_ACCOUNT_OWNER_KEY, ownerId);
+  // A same-account restart uses the newer active cache. Only a clean logout
+  // or account switch needs the archive; otherwise deleted runs could return.
+  if (cachedOwnerId !== ownerId) {
+    await restoreAccountSchedules(ownerId);
+    await restoreAccountAuthoredContent(ownerId);
+  }
 }
 
 let workspaceMutationQueue: Promise<unknown> = Promise.resolve();
@@ -1183,8 +1231,11 @@ function flushConversations(): Promise<void> {
   return conversationWriteTail;
 }
 
+let scheduleWriteTail: Promise<void> = Promise.resolve();
 function persistSchedules(runs: ScheduledRun[]) {
-  void saveJson("scheduled-runs.json", serializeSchedules(runs));
+  const snapshot = serializeSchedules(runs);
+  scheduleWriteTail = scheduleWriteTail.catch(() => {}).then(() => saveJson("scheduled-runs.json", snapshot));
+  void scheduleWriteTail.catch(() => {});
 }
 
 function persistScripts(scripts: CustomScript[]) {
@@ -2265,7 +2316,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   tickScheduledRuns: async () => {
-    if (!get().authed) return;
+    if (!get().authed || get().loggingOut) return;
     const d = new Date();
     const hour = d.getHours();
     const minute = d.getMinutes();
@@ -2999,6 +3050,12 @@ export const useStore = create<State>((set, get) => {
       }
       if (get().projectsSyncing) throw new Error("Cloud sync is still in progress. Wait for it to finish before switching accounts.");
       await get().syncProjects();
+      await scheduleWriteTail;
+      if (get().scheduledRuns.length && !get().accountOwnerId) {
+        throw new Error("Account identity is unavailable. Reconnect before signing out so saved schedules are not lost.");
+      }
+      if (get().accountOwnerId) await archiveAccountSchedules(get().accountOwnerId!, get().scheduledRuns);
+      if (get().accountOwnerId) await archiveAccountAuthoredContent(get().accountOwnerId!, get().customScripts, get().localSkills);
       await invoke<null>("account_logout");
       await clearAccountEntityCache();
       clearActiveAutomationExecution();

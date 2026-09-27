@@ -523,7 +523,7 @@ export function ChatView() {
               <div>
                 <strong>{agentNeedsLogin ? `Sign in to ${agentName}` : ready ? "Agent connected" : `Connect ${agentName}`}</strong>
                 <p className="muted">
-                  Start the selected browser profile for verification. Website actions stay blocked until verification passes.
+                  Choose a browser profile and start it. Website actions stay blocked until its connection check passes.
                 </p>
               </div>
               {!ready && agentError && <div className="error small" role="status">
@@ -571,7 +571,7 @@ export function ChatView() {
               <div className="empty-suggestion-grid">
                 <button
                   className="empty-suggestion"
-                  title="Rotate the active browser profile to Spain and verify the proxy country"
+                  title="Start the active browser profile and verify its connection country and IP"
                   onClick={() =>
                     s.tryGuidePrompt(
                       "Using the nextctl CLI, start the active browser profile with verification and confirm its current proxy country and IP.",

@@ -21,6 +21,10 @@ npm run pack
 
 Use `npm run dev` for interactive application testing. Use `npm run dist:mac` or `npm run dist:win` only when platform packaging is relevant.
 
+## Live architecture
+
+Live viewing and control must go through the Nextbrowser backend. A profile may run on a separate VPS, so do not add a direct desktop-to-profile stream or a local fallback that bypasses the backend.
+
 ## README internationalization
 
 - `README.md` is the canonical English source.

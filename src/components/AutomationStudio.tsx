@@ -563,14 +563,25 @@ export function AutomationStudio() {
       let recordingRuntime: string | undefined;
       if (source === "hybrid") {
         const workspaceProfiles = s.workspaces.find((workspace) => workspace.id === workspaceId)?.profileNames ?? [];
+        if (workspaceProfiles.length === 0) {
+          return setStudioError("Create a browser profile in this workspace before recording.");
+        }
         if (!s.selectedProfile && workspaceProfiles.length > 1) {
           return setStudioError("Choose the browser profile you want to record before starting.");
         }
         recordingProfile = s.selectedProfile || (workspaceProfiles.length === 1 ? workspaceProfiles[0] : undefined);
+        if (!recordingProfile || !workspaceProfiles.includes(recordingProfile)) {
+          return setStudioError("Choose a browser profile from this workspace before recording.");
+        }
         recordingRuntime = selectedBrowserRuntime(recordingProfile);
-        const browserRunning = recordingProfile
-          ? s.statuses[recordingProfile] === "running"
-          : s.defaultSession?.status === "running";
+        const browserRunning = s.statuses[recordingProfile] === "running";
+        if (!browserRunning) {
+          setNotice(`Starting and verifying ${recordingProfile} before recording…`);
+          await s.startProfile(recordingProfile);
+          if (useStore.getState().statuses[recordingProfile] !== "running") {
+            throw new Error("The selected browser profile did not pass its connection check. Recording was not started.");
+          }
+        }
         const armRecorder = (attach: boolean) => invoke("automation_page_recording_start", {
           recordingId: id,
           profile: recordingProfile,
@@ -578,14 +589,13 @@ export function AutomationStudio() {
           attach,
         });
         try {
-          await armRecorder(browserRunning);
+          await armRecorder(true);
         } catch (error) {
           // A user can close the browser window while its state file still says
           // "running". Recover that exact profile once and arm the recorder
           // again instead of exposing CDP/connection-refused internals.
-          if (!browserRunning || !isUnavailableRecordingSession(error)) throw error;
-          if (recordingProfile) await s.startProfile(recordingProfile);
-          else await s.startDefaultSession();
+          if (!isUnavailableRecordingSession(error)) throw error;
+          await s.startProfile(recordingProfile);
           await armRecorder(true);
         }
       }

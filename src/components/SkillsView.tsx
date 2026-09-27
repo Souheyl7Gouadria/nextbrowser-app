@@ -40,7 +40,10 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
   const isMySkills = category === "my-skills";
   const isScripts = category === "my-scripts";
   const skillCount = categories.reduce((total, current) => total + current.entries.length, 0);
-  const publishedScripts = s.appliedScripts.filter((entry) => entry.selector.kind === "script");
+  const publishedScripts = s.appliedScripts.filter((entry) =>
+    entry.selector.kind === "script" &&
+    !s.customScripts.some((script) => script.serverSlug && (entry.id === script.serverSlug || entry.id === `catalog:${script.serverSlug}`)),
+  );
   const visibleEntries = isSkillsOverview ? categories.flatMap((current) => current.entries) : (cat?.entries ?? []);
   useEffect(() => {
     const pendingCategory = localStorage.getItem("openSkillsCategory");
@@ -426,7 +429,7 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                     key={cs.id}
                     script={cs}
                     ready={ready}
-                    sync={s.scriptSync[cs.id]}
+                    sync={s.scriptSync[cs.id] ?? (cs.submittedAt ? "synced" : "idle")}
                     sessionName={sessionName}
                     onEdit={() => setScriptEditor(cs)}
                     onDelete={() => { setDeleteError(undefined); setDeleteRequest({ title: cs.title, run: () => s.deleteCustomScript(cs.id) }); }}
