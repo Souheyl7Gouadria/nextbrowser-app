@@ -1,5 +1,9 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { execFile } = require("node:child_process");
+const { promisify } = require("node:util");
+
+const execFileAsync = promisify(execFile);
 
 const RUNTIME_UPDATE_SOURCES = Object.freeze([
   {
@@ -326,9 +330,40 @@ async function readJSON(file) {
   }
 }
 
-async function installedClawbrowserVersion(runtimeRoot) {
-  const metadata = await readJSON(path.join(runtimeRoot, "data", ".clawbrowser-browser-release.json"));
-  return normalizeVersion(metadata?.version);
+async function installedClawbrowserVersion(runtimeRoot, executablePath = "", platform = process.platform) {
+  const managedRoot = path.join(runtimeRoot, "data");
+  const managedMetadata = await readJSON(path.join(managedRoot, ".clawbrowser-browser-release.json"));
+  // The installer verifies the managed copy before another runtime is selected.
+  if (!executablePath) return normalizeVersion(managedMetadata?.version);
+
+  const executable = path.resolve(executablePath);
+  const macBundle = platform === "darwin" && executable.endsWith(`${path.sep}Contents${path.sep}MacOS${path.sep}Clawbrowser`)
+    ? path.dirname(path.dirname(path.dirname(executable)))
+    : "";
+  const installRoot = macBundle ? path.dirname(macBundle) : path.dirname(executable);
+  const roots = [installRoot, path.dirname(installRoot)];
+  for (const root of roots) {
+    const metadata = root === managedRoot ? managedMetadata : await readJSON(path.join(root, ".clawbrowser-browser-release.json"));
+    const recordedPath = metadata?.browser_path ? path.resolve(metadata.browser_path) : "";
+    if (metadata?.version && (recordedPath === executable || (macBundle && recordedPath === macBundle) || (!recordedPath && root === managedRoot))) {
+      return normalizeVersion(metadata.version);
+    }
+  }
+
+  // Manually copied macOS bundles may have no installer metadata. Their app
+  // version is the Clawbrowser release; `--version` reports Chromium instead.
+  if (macBundle) {
+    try {
+      const { stdout } = await execFileAsync("/usr/bin/plutil", [
+        "-extract", "CFBundleShortVersionString", "raw", "-o", "-",
+        path.join(macBundle, "Contents", "Info.plist"),
+      ]);
+      return normalizeVersion(stdout);
+    } catch {
+      // An unknown version must never be treated as an available update.
+    }
+  }
+  return "";
 }
 
 async function installedCamoufoxVersion(runtimeRoot) {
@@ -471,12 +506,11 @@ async function latestDasbrowserVersion(fetchImpl) {
 }
 
 function runtimeResult(source, currentVersion, latestVersion, error = "", installed = !!normalizeVersion(currentVersion)) {
-  const current = normalizeVersion(currentVersion);
+  const current = installed ? normalizeVersion(currentVersion) : "";
   const latest = normalizeVersion(latestVersion);
   let status = installed ? "unknown" : "not-installed";
   if (error) status = "error";
   else if (current && latest) status = compareVersions(current, latest) < 0 ? "available" : "up-to-date";
-  else if (installed && latest) status = "available";
   else if (current) status = "unknown";
   return {
     ...source,
@@ -487,9 +521,9 @@ function runtimeResult(source, currentVersion, latestVersion, error = "", instal
   };
 }
 
-async function checkBrowserRuntimeUpdates({ fetchImpl = fetch, runtimeRoot, readDasbrowserVersion = async () => "", isRuntimeInstalled = {}, platform = process.platform, arch = process.arch }) {
+async function checkBrowserRuntimeUpdates({ fetchImpl = fetch, runtimeRoot, clawbrowserExecutable = "", readDasbrowserVersion = async () => "", isRuntimeInstalled = {}, platform = process.platform, arch = process.arch }) {
   const installed = {
-    clawbrowser: await installedClawbrowserVersion(runtimeRoot),
+    clawbrowser: await installedClawbrowserVersion(runtimeRoot, clawbrowserExecutable, platform),
     camoufox: await installedCamoufoxVersion(runtimeRoot),
     dasbrowser: normalizeVersion(await readDasbrowserVersion()),
   };

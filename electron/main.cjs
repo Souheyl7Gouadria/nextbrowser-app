@@ -1315,6 +1315,7 @@ async function installedDasbrowserVersion() {
 }
 async function checkForBrowserRuntimeUpdates() {
   if (browserRuntimeUpdateCheckPromise) return browserRuntimeUpdateCheckPromise;
+  const clawbrowserExecutable = resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot: nextbrowserRuntimeRoot() });
   setBrowserRuntimeUpdateStatus({
     ...browserRuntimeUpdateStatus,
     status: "checking",
@@ -1322,11 +1323,12 @@ async function checkForBrowserRuntimeUpdates() {
   browserRuntimeUpdateCheckPromise = checkBrowserRuntimeUpdates({
     fetchImpl: fetch,
     runtimeRoot: nextbrowserRuntimeRoot(),
+    clawbrowserExecutable,
     platform: process.platform,
     arch: process.arch,
     readDasbrowserVersion: installedDasbrowserVersion,
     isRuntimeInstalled: {
-      clawbrowser: !!resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot: nextbrowserRuntimeRoot() }),
+      clawbrowser: !!clawbrowserExecutable,
       dasbrowser: !!resolveDasbrowserRuntime(dasbrowserRuntimeOptions()),
     },
   }).then((status) => {
@@ -1615,7 +1617,11 @@ async function createCamoufoxManagedPython(venv) {
   return run(uv, ["venv", "--seed", "--python", "3.13", "--python-preference", "managed", venv], {}, { timeoutMs: 15 * 60 * 1000 });
 }
 async function installedBrowserRuntimeVersion(runtime) {
-  if (runtime === "clawbrowser") return installedClawbrowserVersion(nextbrowserRuntimeRoot());
+  if (runtime === "clawbrowser") {
+    const runtimeRoot = nextbrowserRuntimeRoot();
+    const executable = resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot });
+    return executable ? installedClawbrowserVersion(runtimeRoot, executable) : "";
+  }
   if (runtime === "camoufox") return installedCamoufoxVersion(nextbrowserRuntimeRoot());
   if (runtime === "dasbrowser") return installedDasbrowserVersion();
   return "";

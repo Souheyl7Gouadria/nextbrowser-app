@@ -12,6 +12,7 @@ const {
   classifyRuntimeUpdateFailure,
   compareVersions,
   installedCamoufoxVersion,
+  installedClawbrowserVersion,
   installSelectedRuntimeUpdates,
   installRuntimeUpdateWithVerification,
   runtimeResult,
@@ -205,7 +206,54 @@ test("marks only older installed runtimes as updateable", () => {
   assert.equal(runtimeResult(source, "1.0.3", "1.0.4").status, "available");
   assert.equal(runtimeResult(source, "1.0.4", "1.0.4").status, "up-to-date");
   assert.equal(runtimeResult(source, "", "1.0.4").status, "not-installed");
-  assert.equal(runtimeResult(source, "", "1.0.4", "", true).status, "available");
+  assert.equal(runtimeResult(source, "", "1.0.4", "", true).status, "unknown");
+  assert.equal(runtimeResult(source, "1.0.3", "1.0.4", "", false).status, "not-installed");
+});
+
+test("reads the selected external Clawbrowser installation, not stale managed metadata", async (t) => {
+  const root = fixture(t);
+  const managedRoot = path.join(root, "runtime", "data");
+  const externalRoot = path.join(root, "external");
+  const executable = path.join(externalRoot, "clawbrowser");
+  fs.mkdirSync(managedRoot, { recursive: true });
+  fs.mkdirSync(externalRoot, { recursive: true });
+  fs.writeFileSync(executable, "");
+  fs.writeFileSync(path.join(managedRoot, ".clawbrowser-browser-release.json"), JSON.stringify({ version: "1.0.3" }));
+  fs.writeFileSync(path.join(externalRoot, ".clawbrowser-browser-release.json"), JSON.stringify({ version: "1.0.6", browser_path: executable }));
+
+  assert.equal(await installedClawbrowserVersion(path.join(root, "runtime"), executable, "linux"), "1.0.6");
+  fs.writeFileSync(path.join(externalRoot, ".clawbrowser-browser-release.json"), JSON.stringify({ version: "1.0.6", browser_path: path.join(root, "other", "clawbrowser") }));
+  assert.equal(await installedClawbrowserVersion(path.join(root, "runtime"), executable, "linux"), "");
+});
+
+test("reads the version of a manually copied macOS Clawbrowser bundle", { skip: process.platform !== "darwin" }, async (t) => {
+  const root = fixture(t);
+  const bundle = path.join(root, "Clawbrowser.app");
+  const executable = path.join(bundle, "Contents", "MacOS", "Clawbrowser");
+  fs.mkdirSync(path.dirname(executable), { recursive: true });
+  fs.writeFileSync(executable, "");
+  fs.writeFileSync(path.join(bundle, "Contents", "Info.plist"), '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>1.0.6</string></dict></plist>');
+  assert.equal(await installedClawbrowserVersion(path.join(root, "runtime"), executable, "darwin"), "1.0.6");
+});
+
+test("does not prompt for an update when the selected Clawbrowser version is unknown", async (t) => {
+  const root = fixture(t);
+  const executable = path.join(root, "external", "clawbrowser");
+  fs.mkdirSync(path.dirname(executable), { recursive: true });
+  fs.writeFileSync(executable, "");
+  const fetchImpl = async (url) => {
+    if (url.includes("api.github.com")) return { ok: true, json: async () => ({ tag_name: "1.0.6", assets: [{ name: "clawbrowser-linux-x64.tar.gz" }] }) };
+    if (url.includes("pypi.org")) return { ok: true, json: async () => ({ info: { version: "0.5.5" } }) };
+    return { ok: true, text: async () => '<a href="https://cdn.dasbrowser.com/144.32/DasbrowserSetup.exe">Download</a>' };
+  };
+  const result = await checkBrowserRuntimeUpdates({
+    fetchImpl, runtimeRoot: path.join(root, "runtime"), clawbrowserExecutable: executable,
+    isRuntimeInstalled: { clawbrowser: true }, platform: "linux", arch: "x64",
+  });
+  assert.equal(result.runtimes[0].status, "unknown");
+  assert.equal(result.runtimes[0].currentVersion, undefined);
+  assert.equal(result.runtimes[0].latestVersion, "1.0.6");
+  assert.deepEqual(selectAvailableRuntimeUpdates(result, ["clawbrowser"]), []);
 });
 
 test("checks every runtime independently and preserves partial results", async (t) => {
