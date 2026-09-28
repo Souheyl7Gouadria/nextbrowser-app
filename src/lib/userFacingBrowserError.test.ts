@@ -17,6 +17,13 @@ describe("userFacingBrowserError", () => {
       .toContain("Check your internet connection");
   });
 
+  it("explains exhausted proxy traffic before generic Remote Control errors", () => {
+    const raw = "detached Remote Control child failed: Proxy traffic limit reached; see log /Users/person/private/child.log";
+    const message = userFacingBrowserError(raw);
+    expect(message).toBe("Proxy traffic limit reached. Open Proxy usage to add more traffic, then retry Live View.");
+    expect(message).not.toMatch(/\/Users|child\.log/);
+  });
+
   it("explains an unreachable browser profile", () => {
     expect(userFacingBrowserError("CDP endpoint is not reachable [CDP_UNREACHABLE]"))
       .toBe("The browser profile stopped responding. Restart the profile and try again.");
@@ -43,6 +50,12 @@ describe("userFacingBrowserError", () => {
     const message = userFacingBrowserError("cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1->127.0.0.1:2: wsarecv: An established connection was aborted by the software in your host machine");
     expect(message).toContain("Nextbrowser retried once");
     expect(message).not.toMatch(/127\.0\.0\.1|wsarecv/i);
+  });
+
+  it("shows a stopped proxy verification failure before a nested CDP transport error", () => {
+    const raw = "Could not start Nextbrowser: VERIFY_FAILED: browser stopped: cdp Runtime.evaluate: read response: read tcp 127.0.0.1:1: connection reset [VERIFY_FAILED] — Retry the same proxy. A proxy profile cannot continue without its proxy.";
+    expect(userFacingBrowserError(raw))
+      .toBe("The profile’s proxy could not be verified, so the browser was stopped. Check or change the proxy, then retry.");
   });
 
   it("preserves useful ordinary errors while removing local log paths", () => {

@@ -21,6 +21,10 @@ export function userFacingBrowserError(error: unknown): string {
     return "Nextbrowser couldn’t connect to the service. Check your internet connection and try again.";
   }
 
+  if (/Proxy traffic limit reached|PROXY_TRAFFIC_EXHAUSTED/i.test(raw)) {
+    return "Proxy traffic limit reached. Open Proxy usage to add more traffic, then retry Live View.";
+  }
+
   if (REMOTE_BACKEND_CODE.test(raw) || REMOTE_CONTROL_FAILURE.test(raw)) {
     if (/\b404\b|not found/i.test(raw)) {
       return "Remote Control is not available on the connected Nextbrowser service. Update Nextbrowser and try again. If it continues, contact support.";
@@ -50,6 +54,16 @@ export function userFacingBrowserError(error: unknown): string {
   // instead of the whole VERIFY_FAILED/LAUNCH_FAILED chain.
   if (/managed-proxy privacy capability/i.test(raw)) {
     return "This Clawbrowser build can’t run a proxied profile. Update Clawbrowser, then retry.";
+  }
+
+  // Verification failures often contain a nested CDP transport error from the
+  // browser we just stopped. Report the failed proxy check, not a transient
+  // browser connection that sounds safe to retry without inspecting the proxy.
+  if (/VERIFY_FAILED|VERIFY_REQUIRED/i.test(raw)) {
+    if (/proxy profile cannot continue without its proxy|proxy required|proxy_required/i.test(raw)) {
+      return "The profile’s proxy could not be verified, so the browser was stopped. Check or change the proxy, then retry.";
+    }
+    return "The browser connection could not be verified, so the profile was stopped. Check its connection, then retry.";
   }
 
   if (/(?:\bcdp\b.*(?:read response|connection|aborted|closed|reset)|Runtime\.evaluate.*(?:read|connection|aborted|closed|reset)|wsarecv.*(?:aborted|reset)|read tcp.*(?:aborted|reset))/i.test(raw)) {
