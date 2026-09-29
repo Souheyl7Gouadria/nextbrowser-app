@@ -857,6 +857,27 @@ const pendingProfileLaunches = new Map<string, number>();
 const pendingProfileStarts = new Map<string, Promise<void>>();
 const deletingProjectIds = new Set<string>();
 const deletedProjectIds = new Set<string>();
+const deletingWorkspaceIds = new Set<string>();
+const DELETED_WORKSPACE_IDS_KEY = "deletedWorkspaceIds:v1";
+function loadDeletedWorkspaceIds(): Set<string> {
+  try {
+    const ids = JSON.parse(localStorage.getItem(DELETED_WORKSPACE_IDS_KEY) || "[]");
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+const deletedWorkspaceIds = loadDeletedWorkspaceIds();
+function rememberDeletedWorkspace(id: string): void {
+  deletedWorkspaceIds.add(id);
+  try {
+    localStorage.setItem(DELETED_WORKSPACE_IDS_KEY, JSON.stringify([...deletedWorkspaceIds]));
+  } catch (error) {
+    // The in-memory tombstone still prevents an in-flight sync from reviving
+    // the workspace; keep completing cleanup after the cloud DELETE succeeds.
+    console.warn("[workspace_delete] could not persist deletion marker", error);
+  }
+}
 const verifyingProfileStarts = new Set<string>();
 const BOOTSTRAP_FOREGROUND_WAIT_MS = 12_000;
 // Stamps which account's data the on-disk caches (workspaces.json and
@@ -2042,7 +2063,7 @@ export const useStore = create<State>((set, get) => {
         invoke<string>("working_directory").catch(() => ""),
       ]);
       const convs = rawConvs.map(normalizeConversation);
-      const workspaces = rawWorkspaces.filter((item) => item?.id && item?.name).map((item) => ({
+      const workspaces = rawWorkspaces.filter((item) => item?.id && item?.name && !deletedWorkspaceIds.has(item.id)).map((item) => ({
         ...item,
         profileNames: Array.isArray(item.profileNames) ? item.profileNames : [],
         profileToolsets: item.profileToolsets ?? {},
@@ -2321,6 +2342,7 @@ export const useStore = create<State>((set, get) => {
     const hour = d.getHours();
     const minute = d.getMinutes();
     for (const run of get().scheduledRuns) {
+      if (run.workspaceId && (deletingWorkspaceIds.has(run.workspaceId) || deletedWorkspaceIds.has(run.workspaceId))) continue;
       if (!scheduleDue(run, d.getTime())) continue;
       // A monitoring schedule runs the engine, not the agent: it opens the
       // profile's browser, reads x.com and closes nothing but its own tab. It
@@ -4570,6 +4592,7 @@ export const useStore = create<State>((set, get) => {
       const unownedChatIds: string[] = [];
       const unownedChats: string[] = [];
       for (const cloud of remoteWorkspaces) {
+        if (deletingWorkspaceIds.has(cloud.id) || deletedWorkspaceIds.has(cloud.id)) continue;
         workspaceRevisions[cloud.id] = cloud.revision;
         const normalized: Workspace = {
           id: cloud.id,
@@ -4586,6 +4609,7 @@ export const useStore = create<State>((set, get) => {
       }
       for (const workspace of workspaces) {
         if (epoch !== accountEpoch || !get().authed) return;
+        if (deletingWorkspaceIds.has(workspace.id) || deletedWorkspaceIds.has(workspace.id)) continue;
         const cloud = remoteWorkspaceById.get(workspace.id);
         if (cloud && workspace.updatedAt <= Date.parse(cloud.updated_at)) continue;
         const saveWorkspace = (candidate: Workspace, baseRevision: number) => invoke<{ revision: number }>("workspace_put", {
@@ -4669,7 +4693,7 @@ export const useStore = create<State>((set, get) => {
         && (!initialProjectRevisions[item.id] || remoteById.has(item.id)));
       const revisions = { ...get().projectRevisions };
       for (const cloud of remote) {
-        if (deletedProjectIds.has(cloud.id)) continue;
+        if (deletedProjectIds.has(cloud.id) || deletingWorkspaceIds.has(cloud.workspace_id) || deletedWorkspaceIds.has(cloud.workspace_id)) continue;
         revisions[cloud.id] = cloud.revision;
         const index = conversations.findIndex((conversation) => conversation.id === cloud.id);
         const normalized = normalizeConversation({
@@ -4709,14 +4733,17 @@ export const useStore = create<State>((set, get) => {
       const initialConversationById = new Map(initialConversations.map((item) => [item.id, item]));
       const currentConversationById = new Map(get().conversations.map((item) => [item.id, item]));
       conversations = conversations.filter((item) => !deletedProjectIds.has(item.id)
+        && !deletedWorkspaceIds.has(item.workspaceId || "")
         && (!initialConversationById.has(item.id) || currentConversationById.has(item.id)));
       for (const current of currentConversationById.values()) {
-        if (deletedProjectIds.has(current.id) || current === initialConversationById.get(current.id)) continue;
+        if (deletedProjectIds.has(current.id) || deletedWorkspaceIds.has(current.workspaceId || "") || current === initialConversationById.get(current.id)) continue;
         const index = conversations.findIndex((item) => item.id === current.id);
         if (index < 0) conversations.push(current);
         else conversations[index] = current;
       }
       let activeWorkspaceId = get().activeWorkspaceId;
+      workspaces = workspaces.filter((workspace) => !deletedWorkspaceIds.has(workspace.id));
+      conversations = conversations.filter((conversation) => !deletedWorkspaceIds.has(conversation.workspaceId || ""));
       if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) activeWorkspaceId = workspaces[0]?.id;
       if (activeWorkspaceId) localStorage.setItem("activeWorkspaceId", activeWorkspaceId);
       else localStorage.removeItem("activeWorkspaceId");
@@ -4865,18 +4892,75 @@ export const useStore = create<State>((set, get) => {
   },
 
   deleteWorkspace: async (id) => {
-    await invoke("workspace_delete", { id });
+    if (!get().workspaces.some((workspace) => workspace.id === id)) throw new Error("The workspace no longer exists.");
+    if (deletingWorkspaceIds.has(id)) throw new Error("This workspace is already being deleted.");
+    deletingWorkspaceIds.add(id);
+    try {
+      // Finish a write or sync that started before confirmation. Otherwise a
+      // delayed workspace PUT could recreate the row after the DELETE.
+      await workspaceMutationQueue;
+      const syncDeadline = Date.now() + 30_000;
+      while (get().projectsSyncing && Date.now() < syncDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (get().projectsSyncing) throw new Error("Workspace sync is still in progress. Try deleting again shortly.");
+      const target = get().workspaces.find((workspace) => workspace.id === id);
+      if (!target) throw new Error("The workspace no longer exists.");
+      // Profiles are machine-wide. A legacy profile referenced by another
+      // workspace must remain there; all exclusive profiles are stopped and
+      // removed before the cloud workspace disappears.
+      for (const name of [...new Set(target.profileNames)]) {
+        if (get().workspaces.some((workspace) => workspace.id !== id && workspace.profileNames.includes(name))) continue;
+        await get().deleteProfile(name);
+      }
+      // Fail before removing the cloud workspace if local artifact cleanup
+      // cannot complete. The backend deletes its projects and runs atomically.
+      await invoke("artifact_workspace_delete", { workspaceId: id });
+      await invoke("workspace_delete", { id });
+      rememberDeletedWorkspace(id);
+    } finally {
+      deletingWorkspaceIds.delete(id);
+    }
+    const removedConversations = get().conversations.filter((conversation) => conversation.workspaceId === id);
+    const removedReplyIds = new Set<string>();
+    for (const conversation of removedConversations) {
+      deletedProjectIds.add(conversation.id);
+      for (const message of conversation.messages) {
+        if (message.status === "streaming") removedReplyIds.add(message.id);
+      }
+    }
+    for (const replyId of removedReplyIds) void invoke("agent_terminate", { replyId }).catch(() => {});
+    for (const agent of AGENTS) localStorage.removeItem(activeConversationStorageKey(agent.id, id));
+    const removedConversationIds = new Set(removedConversations.map((conversation) => conversation.id));
     const workspaces = get().workspaces.filter((workspace) => workspace.id !== id);
     const conversations = get().conversations.filter((conversation) => conversation.workspaceId !== id);
+    const scheduledRuns = get().scheduledRuns.filter((run) => run.workspaceId !== id && !removedConversationIds.has(run.conversationId || ""));
     const previousActive = get().activeWorkspaceId;
     const activeWorkspaceId = workspaces.some((workspace) => workspace.id === previousActive)
       ? previousActive : workspaces[0]?.id;
-    await Promise.all([saveWorkspaces(workspaces), persistConvs(conversations)]);
+    const projectRevisions = { ...get().projectRevisions };
+    for (const conversation of removedConversations) delete projectRevisions[conversation.id];
+    const workspaceRevisions = { ...get().workspaceRevisions };
+    delete workspaceRevisions[id];
     const activeConvId = Object.fromEntries(Object.entries(get().activeConvId)
       .filter(([, conversationId]) => conversations.some((c) => c.id === conversationId && c.workspaceId === activeWorkspaceId)));
-    set({ workspaces, conversations, activeWorkspaceId, activeConvId,
+    const runtime = { ...get().runtime };
+    for (const [agentId, agentRuntime] of Object.entries(runtime)) {
+      const removedQueueReplyIds = new Set(agentRuntime.queue.filter((item) => removedConversationIds.has(item.conversationId)).map((item) => item.replyId));
+      const queue = agentRuntime.queue.filter((item) => !removedConversationIds.has(item.conversationId));
+      const runningRemoved = !!agentRuntime.runningReplyId && (removedReplyIds.has(agentRuntime.runningReplyId) || removedQueueReplyIds.has(agentRuntime.runningReplyId));
+      if (queue.length !== agentRuntime.queue.length || runningRemoved) runtime[agentId] = {
+        ...agentRuntime, queue, ...(runningRemoved ? { runningReplyId: undefined, pendingStop: false } : {}),
+      };
+    }
+    const profileChatOwners = Object.fromEntries(Object.entries(get().profileChatOwners)
+      .filter(([, conversationId]) => !removedConversationIds.has(conversationId)));
+    set({ workspaces, conversations, scheduledRuns, activeWorkspaceId, activeConvId, projectRevisions, workspaceRevisions, runtime, profileChatOwners,
       workspaceSetupRequired: requiresWorkspaceSetup(workspaces, conversations, activeWorkspaceId),
     });
+    persistSchedules(scheduledRuns);
+    await Promise.all([saveWorkspaces(workspaces), persistConvs(conversations), scheduleWriteTail]);
+    if (get().accountOwnerId) await archiveAccountSchedules(get().accountOwnerId!, scheduledRuns);
     if (activeWorkspaceId !== previousActive) {
       if (activeWorkspaceId) get().selectWorkspace(activeWorkspaceId);
       else {
@@ -4961,6 +5045,7 @@ export const useStore = create<State>((set, get) => {
   newChat: () => {
     const agentId = get().agentId;
     const workspaceId = get().activeWorkspaceId;
+    if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted.");
     const n = get().conversationsForAgent(agentId).length + 1;
     const c: Conversation = {
       id: uid(),
@@ -4991,7 +5076,7 @@ export const useStore = create<State>((set, get) => {
     const agentId = selectedAgentId ?? get().agentId;
     if (!AGENTS.some((agent) => agent.id === agentId)) return "";
     const workspaceId = get().activeWorkspaceId;
-    if (!workspaceId) return "";
+    if (!workspaceId || deletingWorkspaceIds.has(workspaceId)) return "";
     const cleanName = validateEntityName("project", name);
     const c: Conversation = {
       id: uid(),
@@ -5024,6 +5109,7 @@ export const useStore = create<State>((set, get) => {
   assignProfileToProject: (profileName, toolset, projectId, replaceToolset = false, proxyId) => {
     const targetId = projectId ?? get().activeWorkspaceId;
     if (!targetId) return Promise.reject(new Error("Choose a workspace first."));
+    if (deletingWorkspaceIds.has(targetId)) return Promise.reject(new Error("This workspace is being deleted."));
     return persistWorkspaceMutation((previous) => {
       if (!previous.some((workspace) => workspace.id === targetId)) throw new Error("Workspace no longer exists.");
       const existingToolset = previous.find((workspace) =>
@@ -5080,6 +5166,9 @@ export const useStore = create<State>((set, get) => {
 
   moveProfileToWorkspace: async (profileName, workspaceId) => {
     const state = get();
+    if (deletingWorkspaceIds.has(workspaceId) || state.workspaces.some((workspace) => deletingWorkspaceIds.has(workspace.id) && workspace.profileNames.includes(profileName))) {
+      throw new Error("This workspace is being deleted.");
+    }
     if (state.projectsSyncing) throw new Error("Workspace sync is still in progress.");
     const status = state.statuses[profileName] ?? state.profileSessions[profileName]?.status ?? "stopped";
     if (["running", "starting", "stopping", "rotating"].includes(status)) {
@@ -5122,6 +5211,7 @@ export const useStore = create<State>((set, get) => {
   // the active chat/agent selection.
   createNamedChat: (agentId, title) => {
     const workspaceId = get().activeWorkspaceId;
+    if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted.");
     const clean = title.trim();
     const c: Conversation = {
       id: uid(),

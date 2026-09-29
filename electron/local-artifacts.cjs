@@ -202,6 +202,12 @@ function createLocalArtifactStore({ rootDir, now = () => Date.now(), makeId = ra
       });
     },
 
+    deleteWorkspace(workspaceId) {
+      return enqueue(workspaceId, async () => {
+        await fs.rm(locations(workspaceId).root, { recursive: true, force: true });
+      });
+    },
+
     seedExamples(workspaceId) {
       return enqueue(workspaceId, async () => {
         const existing = await readIndex(workspaceId);

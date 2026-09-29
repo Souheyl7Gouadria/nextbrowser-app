@@ -20,16 +20,60 @@ it("clears the previous profile and conversation when creating a workspace", asy
 
 it("does not switch workspace or profile when deleting a different workspace", async () => {
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [workspace("a"), workspace("b"), workspace("c")], activeWorkspaceId: "b", selectedProfile: "b-profile", conversations: [] });
+  useStore.setState({ workspaces: [workspace("a"), workspace("b"), workspace("c")], activeWorkspaceId: "b", selectedProfile: "b-profile", conversations: [], deleteProfile: vi.fn().mockResolvedValue(undefined) });
   await useStore.getState().deleteWorkspace("c");
   expect(useStore.getState()).toMatchObject({ activeWorkspaceId: "b", selectedProfile: "b-profile" });
 });
 
 it("clears stale references when the last workspace is deleted", async () => {
   const { useStore } = await import("./store");
-  useStore.setState({ workspaces: [workspace("a")], activeWorkspaceId: "a", selectedProfile: "a-profile", activeConvId: { claude: "old" }, conversations: [] });
+  useStore.setState({ workspaces: [workspace("a")], activeWorkspaceId: "a", selectedProfile: "a-profile", activeConvId: { claude: "old" }, conversations: [], deleteProfile: vi.fn().mockResolvedValue(undefined) });
   await useStore.getState().deleteWorkspace("a");
   expect(useStore.getState()).toMatchObject({ activeWorkspaceId: undefined, selectedProfile: undefined, activeConvId: {} });
+});
+
+it("deletes exclusive profiles, projects, schedules, and artifacts after confirmation while keeping shared profiles", async () => {
+  const { useStore } = await import("./store");
+  const calls: string[] = [];
+  bridge.invoke.mockImplementation(async (command: string) => { calls.push(command); return { revision: 1 }; });
+  const deleteProfile = vi.fn(async (name: string) => { calls.push(`profile:${name}`); });
+  useStore.setState({
+    workspaces: [{ ...workspace("a"), profileNames: ["exclusive", "shared"] }, { ...workspace("b"), profileNames: ["shared"] }],
+    activeWorkspaceId: "a", deleteProfile,
+    conversations: [{ id: "a-chat", workspaceId: "a", agent: "claude", messages: [], createdAt: 1, updatedAt: 1 }, { id: "b-chat", workspaceId: "b", agent: "claude", messages: [], createdAt: 1, updatedAt: 1 }],
+    scheduledRuns: [{ id: "a-run", workspaceId: "a" }, { id: "b-run", workspaceId: "b" }],
+  } as any);
+  await useStore.getState().deleteWorkspace("a");
+  expect(deleteProfile).toHaveBeenCalledExactlyOnceWith("exclusive");
+  expect(calls.indexOf("profile:exclusive")).toBeLessThan(calls.indexOf("artifact_workspace_delete"));
+  expect(calls.indexOf("artifact_workspace_delete")).toBeLessThan(calls.indexOf("workspace_delete"));
+  expect(useStore.getState().workspaces.map((item) => item.id)).toEqual(["b"]);
+  expect(useStore.getState().conversations.map((item) => item.id)).toEqual(["b-chat"]);
+  expect(useStore.getState().scheduledRuns.map((item) => item.id)).toEqual(["b-run"]);
+  expect(localStorage.setItem).toHaveBeenCalledWith("deletedWorkspaceIds:v1", JSON.stringify(["a"]));
+});
+
+it("keeps the workspace when a profile cannot be stopped or removed", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ workspaces: [workspace("a")], activeWorkspaceId: "a", deleteProfile: vi.fn().mockRejectedValue(new Error("browser still running")) });
+  await expect(useStore.getState().deleteWorkspace("a")).rejects.toThrow("browser still running");
+  expect(bridge.invoke).not.toHaveBeenCalledWith("workspace_delete", expect.anything());
+  expect(useStore.getState().workspaces.map((item) => item.id)).toEqual(["a"]);
+});
+
+it("does not resurrect a deleted workspace or its projects from a stale sync response", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ workspaces: [{ ...workspace("a"), profileNames: [] }], activeWorkspaceId: "a", authed: true, conversations: [] });
+  await useStore.getState().deleteWorkspace("a");
+  bridge.invoke.mockImplementation(async (command: string) => {
+    if (command === "workspaces_list") return { workspaces: [{ id: "a", name: "a", document: { profileNames: [] }, revision: 1, created_at: "2026-09-29T00:00:00Z", updated_at: "2026-09-29T00:00:00Z" }] };
+    if (command === "projects_list") return { projects: [{ id: "old-chat", title: "Old", agent: "claude", chat_mode: "chat", workspace_id: "a", document: { messages: [] }, revision: 1, updated_at: "2026-09-29T00:00:00Z" }] };
+    return { revision: 1 };
+  });
+  await useStore.getState().syncProjects();
+  expect(useStore.getState().workspaces).toEqual([]);
+  expect(useStore.getState().conversations).toEqual([]);
+  expect(bridge.invoke.mock.calls.some(([command]) => command === "workspace_put" || command === "project_put")).toBe(false);
 });
 
 it("rejects and rolls back assignment on a desktop write failure, then permits retry", async () => {

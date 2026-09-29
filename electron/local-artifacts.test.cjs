@@ -47,6 +47,18 @@ test("keeps artifacts isolated by workspace and deletes both bytes and metadata"
   assert.equal((await store.list("workspace-two")).length, 1);
 });
 
+test("deleting a workspace removes its artifact directory without touching another workspace", async (t) => {
+  const { root, store } = await fixture(t);
+  const removed = await store.addBytes("workspace-one", "result.json", "one");
+  const kept = await store.addBytes("workspace-two", "result.json", "two");
+  const removedPath = await store.resolvePath("workspace-one", removed.id);
+  await store.deleteWorkspace("workspace-one");
+  assert.deepEqual(await store.list("workspace-one"), []);
+  await assert.rejects(fs.stat(removedPath), { code: "ENOENT" });
+  assert.equal(await fs.readFile(await store.resolvePath("workspace-two", kept.id), "utf8"), "two");
+  assert.equal(await fs.stat(path.join(root, "store", workspaceKey("workspace-two"))).then((stat) => stat.isDirectory()), true);
+});
+
 test("removes stale metadata when an artifact file is deleted outside the app", async (t) => {
   const { store } = await fixture(t);
   const artifact = await store.addBytes("workspace", "external-delete.json", "{}");

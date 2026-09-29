@@ -1732,12 +1732,20 @@ body.is-resizing-sidebar {
   left: 0;
   min-width: 0;
   max-width: 100%;
+  max-height: min(360px, calc(100dvh - 190px));
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   padding: 4px;
   border: 1px solid var(--line-strong);
   border-radius: 9px;
   background: var(--surface-1);
   box-shadow: none;
+}
+.workspace-menu-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .workspace-menu button {
   display: flex;
@@ -1764,7 +1772,11 @@ body.is-resizing-sidebar {
 }
 .workspace-menu button:hover,
 .workspace-menu button.active { background: var(--surface-5); }
-.workspace-menu .workspace-delete-action { color: var(--red); border-top: 1px solid var(--border); }
+.workspace-menu .workspace-delete-action {
+  flex: none;
+  color: var(--red);
+  border-top: 1px solid var(--border);
+}
 .workspace-picker:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface-3)); }
 .workspace-picker > span { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
 .workspace-picker small { color: var(--muted); font-size: 8px; font-weight: 550; text-transform: uppercase; letter-spacing: .05em; }

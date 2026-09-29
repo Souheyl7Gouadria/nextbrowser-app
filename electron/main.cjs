@@ -2099,6 +2099,9 @@ async function invokeCommand(command, args = {}, sender) {
     case "artifact_delete": {
       return await localAutomationArtifacts().delete(String(args.workspaceId || ""), String(args.id || ""));
     }
+    case "artifact_workspace_delete": {
+      return await localAutomationArtifacts().deleteWorkspace(String(args.workspaceId || ""));
+    }
     case "automation_workflows_list": return await listAutomationWorkflows({ env: childEnv() });
     case "automation_workflow_put": return await putAutomationWorkflow(args.workflow || {}, { env: childEnv() });
     case "automation_workflow_delete": return await deleteAutomationWorkflow(String(args.id || ""), { env: childEnv() });

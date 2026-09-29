@@ -1308,17 +1308,19 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
               </button>
               {workspaceMenuOpen && (
                 <div className="workspace-menu">
-                  {s.workspaces.map((workspace) => (
-                    <button
-                      key={workspace.id}
-                      className={workspace.id === s.activeWorkspaceId ? "active" : ""}
-                      title={workspace.name}
-                      onClick={() => { setProfileActionError(null); s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
-                    >
-                      <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
-                      <span>{workspace.name}</span>
-                    </button>
-                  ))}
+                  <div className="workspace-menu-list">
+                    {s.workspaces.map((workspace) => (
+                      <button
+                        key={workspace.id}
+                        className={workspace.id === s.activeWorkspaceId ? "active" : ""}
+                        title={workspace.name}
+                        onClick={() => { setProfileActionError(null); s.selectWorkspace(workspace.id); setWorkspaceMenuOpen(false); }}
+                      >
+                        <Icon name={workspace.id === s.activeWorkspaceId ? "checkmark" : "square.grid.2x2"} size={11} />
+                        <span>{workspace.name}</span>
+                      </button>
+                    ))}
+                  </div>
                   {activeWorkspace && <button className="workspace-delete-action" onClick={() => {
                     setWorkspaceMenuOpen(false);
                     setWorkspaceDeleteError(null);
@@ -2050,17 +2052,16 @@ export function Sidebar({ onOpenAgentSettings, onHome }: SidebarProps) {
         <div className="modal-overlay" onMouseDown={() => { if (!workspaceDeletePending) setWorkspaceDeleteOpen(false); }}>
           <section className="modal-card workspace-create-modal" role="alertdialog" aria-modal="true" aria-labelledby="workspace-delete-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="profile-menu-head"><Icon name="trash" size={15} /><strong id="workspace-delete-title">Delete “{activeWorkspace.name}”?</strong></div>
-            <p className="muted small">This removes the workspace and its projects. Delete or move its profiles first.</p>
-            {(activeWorkspace.profileNames.length > 0 || projects.length > 0) && <p className="error small">This workspace still has {activeWorkspace.profileNames.length} profile{activeWorkspace.profileNames.length === 1 ? "" : "s"} and {projects.length} project{projects.length === 1 ? "" : "s"}. Remove them before deleting it.</p>}
+            <p className="muted small">This permanently deletes the workspace, its {projects.length} project{projects.length === 1 ? "" : "s"} and chats, scheduled runs, local artifacts, and profiles used only here. Profiles also used by another workspace stay there. This cannot be undone.</p>
             {workspaceDeleteError && <p className="error small" role="alert">{workspaceDeleteError}</p>}
             <div className="modal-actions">
               <button type="button" className="secondary" disabled={workspaceDeletePending} onClick={() => setWorkspaceDeleteOpen(false)}>Cancel</button>
-              <button type="button" className="primary" disabled={workspaceDeletePending || activeWorkspace.profileNames.length > 0 || projects.length > 0} onClick={() => {
+              <button type="button" className="primary" disabled={workspaceDeletePending} onClick={() => {
                 setWorkspaceDeletePending(true);
                 void s.deleteWorkspace(activeWorkspace.id).then(() => setWorkspaceDeleteOpen(false)).catch((error: unknown) => {
                   setWorkspaceDeleteError(error instanceof Error ? error.message : String(error));
                 }).finally(() => setWorkspaceDeletePending(false));
-              }}>{workspaceDeletePending ? <Spinner size={13} /> : <Icon name="trash" size={13} />} Delete workspace</button>
+              }}>{workspaceDeletePending ? <Spinner size={13} /> : <Icon name="trash" size={13} />} Delete workspace and contents</button>
             </div>
           </section>
         </div>
