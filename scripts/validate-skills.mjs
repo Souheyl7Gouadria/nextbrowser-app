@@ -163,7 +163,7 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
         failures.push(`${entry.name}: watchlist.engine is not a built-in engine`);
       }
       // A second mode beside the watchlist, driven by its own built-in engine.
-      if (watchlist.monitor != null && (typeof watchlist.monitor !== "object" || !["x-monitor"].includes(watchlist.monitor.engine))) {
+      if (watchlist.monitor != null && (typeof watchlist.monitor !== "object" || !["x-monitor", "reddit-monitor"].includes(watchlist.monitor.engine))) {
         failures.push(`${entry.name}: watchlist.monitor.engine is not a built-in monitor engine`);
       }
     }

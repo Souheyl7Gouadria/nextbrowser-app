@@ -286,15 +286,16 @@ export interface ScheduledRun {
   enabled: boolean;
   lastFiredAt?: number;
   conversationId?: string;
-  /** What firing does. A prompt schedule hands its prompt to the agent; an
-   *  x-monitor schedule runs the X monitoring engine on its profile — open the
-   *  browser, read the feed and the follower count — with no agent at all. */
-  kind?: "prompt" | "x-monitor";
-  /** The skill an x-monitor schedule belongs to. */
+  /** What firing does. A prompt schedule hands its prompt to the agent; a
+   *  monitoring schedule runs its skill's monitoring engine on its profile —
+   *  x-monitor reads the X feed and follower count, reddit-monitor the Reddit
+   *  inbox, communities and keyword search — with no agent at all. */
+  kind?: "prompt" | "x-monitor" | "reddit-monitor";
+  /** The skill a monitoring schedule belongs to. */
   skillId?: string;
 }
 
-/** How often a monitoring schedule may read x.com: any whole number of minutes
+/** How often a monitoring schedule may read its site: any whole number of minutes
  *  from one to a week. A pass that is still running holds the next one back,
  *  so a short interval never stacks reads. */
 export const MONITOR_MIN_INTERVAL_MINUTES = 1;
@@ -326,7 +327,7 @@ export function formatInterval(minutes: number): string {
 }
 
 export function isMonitorSchedule(run: ScheduledRun): boolean {
-  return run.kind === "x-monitor";
+  return run.kind === "x-monitor" || run.kind === "reddit-monitor";
 }
 
 export const WEEKDAY_ORDER = [2, 3, 4, 5, 6, 7, 1] as const;

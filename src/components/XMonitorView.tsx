@@ -299,7 +299,7 @@ function PostRow({ post, fresh }: { post: FeedPost; fresh: boolean }) {
 
 /** Sparkline of one series: a 2px line in the accent, with a hover readout.
  *  The number above it is the headline; this only shows the shape. */
-function Sparkline({ points, label }: { points: number[]; label: string }) {
+export function Sparkline({ points, label }: { points: number[]; label: string }) {
   const [hover, setHover] = useState<number>();
   const width = 220;
   const height = 40;

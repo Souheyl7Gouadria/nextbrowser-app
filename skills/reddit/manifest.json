@@ -1,9 +1,9 @@
 {
   "id": "reddit",
   "name": "Reddit",
-  "description": "Replies to subreddits and your inbox.",
+  "description": "Replies and monitoring for your Reddit account.",
   "logo": "reddit",
-  "features": ["Reply agent", "Cloud phone"],
+  "features": ["Reply agent", "Monitoring", "Cloud phone"],
   "author": "NextBrowser Team",
   "domains": [
     "reddit.com"
@@ -33,6 +33,11 @@
     "handleMaxLength": 21,
     "profileUrl": "https://old.reddit.com/r/{handle}",
     "stateFile": "reddit-state.json",
+    "monitor": {
+      "engine": "reddit-monitor",
+      "label": "Monitoring",
+      "replyLabel": "Reply agent"
+    },
     "transports": [
       {
         "id": "browser",

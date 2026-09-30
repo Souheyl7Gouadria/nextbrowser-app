@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { normalizeState as normalizeRedditMonitorState } from "@nextbrowser-oss/reddit-monitoring";
 import { emptyXReplyState } from "../lib/xreply/state";
 import type { SkillEntry } from "../skillsCatalog";
 import { WatchedProfilesPanel } from "./WatchedProfilesPanel";
@@ -15,6 +16,7 @@ const entry: SkillEntry = {
 beforeEach(() => {
   fixture.state = {
     watchedProfiles: [], watchReports: {}, watchPublishers: {}, xReplyState: emptyXReplyState(),
+    redditMonitorState: normalizeRedditMonitorState(null),
     profiles: [{ name: "local", country: "US" }, { name: "foreign", country: "EE" }],
     workspaces: [{ id: "one", profileNames: ["local", "deleted"] }, { id: "two", profileNames: ["foreign"] }],
     activeWorkspaceId: "one", selectedProfile: "local", agentReady: () => true,

@@ -27,6 +27,7 @@ import {
   selectorFlags,
   selectorTargetHost,
   signInIsForDevice,
+  watchlistTransports as transportsOf,
 } from "./skillsCatalog";
 import { REPOSITORY_SKILL_CATEGORIES, mergeSkillCategories } from "./repositorySkills";
 import { cliBrowser } from "./lib/xreply/browser";
@@ -50,6 +51,27 @@ import {
   withPass as withMonitorPass,
   type XMonitorFeed,
 } from "./lib/xmonitor/feed";
+import {
+  checkAccount as checkRedditAccount,
+  normalizeState as normalizeRedditMonitorState,
+  runPass as runRedditPass,
+  withSettings as withRedditMonitorSettings,
+  type LogEntry as RedditMonitorLogEntry,
+  type Match as RedditMatch,
+  type MonitorSettings as RedditMonitorSettings,
+  type MonitorState as RedditMonitorState,
+} from "@nextbrowser-oss/reddit-monitoring";
+import {
+  REDDIT_MONITOR_FEED_FILE,
+  REDDIT_MONITOR_LOG_FILE,
+  REDDIT_MONITOR_STATE_FILE,
+  emptyRedditMonitorFeed,
+  normalizeRedditMonitorFeed,
+  replyTask as redditReplyTask,
+  withDone as withRedditDone,
+  withPass as withRedditPass,
+  type RedditMonitorFeed,
+} from "./lib/redditmonitor/feed";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
@@ -608,6 +630,15 @@ interface State {
    *  turns with it through xReplyBusy, since both navigate one tab. */
   xMonitorState: MonitorState;
   xMonitorFeed: XMonitorFeed;
+  /** The Reddit skill's monitoring mode: the engine's own state, and the
+   *  matches the dashboard shows. It has its own profile and its own tab lock,
+   *  redditMonitorBusy; the reply agent is the chat agent, not an engine. */
+  redditMonitorState: RedditMonitorState;
+  redditMonitorFeed: RedditMonitorFeed;
+  redditMonitorBusy: boolean;
+  redditMonitorStep?: string;
+  /** What the last Open reddit.com found wrong, until the next try. */
+  redditMonitorNotice?: string;
   appActive: boolean;
   connectAnnounced: Set<string>;
   workingDir: string;
@@ -779,6 +810,13 @@ interface State {
   /** Opens x.com in the monitoring profile, where the user signs in. */
   openMonitorSite: (entry: SkillEntry, profileName?: string) => Promise<void>;
   setMonitorScheduleInterval: (skillId: string, intervalMinutes: number) => void;
+  runRedditMonitorPass: (entry: SkillEntry, options?: { profileName?: string }) => Promise<void>;
+  updateRedditMonitorSettings: (patch: Partial<RedditMonitorSettings>) => void;
+  /** Hides a match from the dashboard, or brings it back. */
+  setRedditMatchDone: (key: string, done: boolean) => void;
+  /** Hands one match to the Reddit reply agent: a draft first, a post only
+   *  after the user approves it. */
+  draftRedditReply: (entry: SkillEntry, match: RedditMatch, profileName?: string) => Promise<void>;
   stopWatchlistRun: (skillId: string) => void;
   tickWatchlistRuns: () => Promise<void>;
   startRemoteStream: (target?: LiveStreamTarget) => Promise<RemoteStreamInfo>;
@@ -1027,6 +1065,8 @@ async function clearAccountEntityCache(): Promise<void> {
     [X_REPLY_STATE_FILE]: "null",
     [X_MONITOR_STATE_FILE]: "null",
     [X_MONITOR_FEED_FILE]: "null",
+    [REDDIT_MONITOR_STATE_FILE]: "null",
+    [REDDIT_MONITOR_FEED_FILE]: "null",
   };
   await Promise.all(Object.entries(emptyFiles).map(([name, content]) =>
     invoke("app_data_write", { name, content }),
@@ -1080,6 +1120,8 @@ function emptyAccountOwnedCaches(): Partial<State> {
     xReplyState: normalizeXReplyState(null),
     xMonitorState: normalizeMonitorState(null),
     xMonitorFeed: emptyXMonitorFeed(),
+    redditMonitorState: normalizeRedditMonitorState(null),
+    redditMonitorFeed: emptyRedditMonitorFeed(),
   };
 }
 
@@ -1376,6 +1418,13 @@ function xMonitorLog(entry: MonitorLogEntry) {
     .then(() => appendAppData(X_MONITOR_LOG_FILE, `${JSON.stringify(entry)}\n`))
     .catch(() => undefined);
 }
+/** The Reddit monitor's log, beside the X engines' and rotated the same way. */
+let redditMonitorLogQueue: Promise<void> = Promise.resolve();
+function redditMonitorLog(entry: RedditMonitorLogEntry) {
+  redditMonitorLogQueue = redditMonitorLogQueue
+    .then(() => appendAppData(REDDIT_MONITOR_LOG_FILE, `${JSON.stringify(entry)}\n`))
+    .catch(() => undefined);
+}
 /** How long one draft may take before the agent is killed, ported from the Go
  *  service's DefaultCommandTimeout. A CLI that hangs otherwise holds the panel
  *  busy until the app restarts, and Stop cannot reach it. */
@@ -1417,6 +1466,9 @@ let xReplyStopRequested = false;
 /// Set while a monitoring pass holds the tab, so stopping the monitoring
 /// schedule ends that pass and never a reply pass that happens to be running.
 let xMonitorPassActive = false;
+/// Set while a Reddit monitoring pass should wind down, and while one runs.
+let redditMonitorStopRequested = false;
+let redditMonitorPassActive = false;
 /// The draft the engine is waiting on right now, so Stop can end the CLI
 /// process instead of waiting for it to finish on its own.
 let xReplyDraftReplyId: string | undefined;
@@ -1478,6 +1530,14 @@ async function prepareXReplySession(
     ]);
     return prepare();
   }
+}
+
+/// prepareMonitorSession opens the profile a monitoring engine reads with. It is
+/// the X engines' preparation — a lost session restarted once, stray tabs
+/// closed — for an explicit profile, and it opens no site: the engine lands
+/// where it reads.
+function prepareMonitorSession(profileName: string | undefined, onStep: (step: string) => void): Promise<string[]> {
+  return prepareXReplySession(undefined, onStep, profileName);
 }
 
 /// runDraftAgent runs the connected agent once, outside the chat queue. The
@@ -1943,6 +2003,9 @@ export const useStore = create<State>((set, get) => {
   xReplySignInNeeded: false,
   xMonitorState: normalizeMonitorState(null),
   xMonitorFeed: emptyXMonitorFeed(),
+  redditMonitorState: normalizeRedditMonitorState(null),
+  redditMonitorFeed: emptyRedditMonitorFeed(),
+  redditMonitorBusy: false,
   scheduledRuns: [],
   customScripts: [],
   localSkills: [],
@@ -2044,7 +2107,7 @@ export const useStore = create<State>((set, get) => {
       }, BOOTSTRAP_FOREGROUND_WAIT_MS);
     });
     const initialize = (async () => {
-      const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawWatchlistDevices, rawXReply, rawXMonitor, rawXMonitorFeed, wd] = await Promise.all([
+      const [rawConvs, rawWorkspaces, rawSchedules, rawScripts, rawLocalSkills, rawAppliedScripts, rawHistory, rawWatched, rawWatchlistRuns, rawWatchlistTransports, rawWatchlistProfiles, rawWatchlistDevices, rawXReply, rawXMonitor, rawXMonitorFeed, rawRedditMonitor, rawRedditMonitorFeed, wd] = await Promise.all([
         loadJson<Conversation[]>("conversations.json", []),
         loadJson<Workspace[]>("workspaces.json", []),
         loadJson<ScheduledRun[]>("scheduled-runs.json", []),
@@ -2060,6 +2123,8 @@ export const useStore = create<State>((set, get) => {
         loadJson<unknown>(X_REPLY_STATE_FILE, null),
         loadJson<unknown>(X_MONITOR_STATE_FILE, null),
         loadJson<unknown>(X_MONITOR_FEED_FILE, null),
+        loadJson<unknown>(REDDIT_MONITOR_STATE_FILE, null),
+        loadJson<unknown>(REDDIT_MONITOR_FEED_FILE, null),
         invoke<string>("working_directory").catch(() => ""),
       ]);
       const convs = rawConvs.map(normalizeConversation);
@@ -2103,6 +2168,8 @@ export const useStore = create<State>((set, get) => {
         xReplyState: normalizeXReplyState(rawXReply),
         xMonitorState: normalizeMonitorState(rawXMonitor),
         xMonitorFeed: normalizeXMonitorFeed(rawXMonitorFeed),
+        redditMonitorState: normalizeRedditMonitorState(rawRedditMonitor),
+        redditMonitorFeed: normalizeRedditMonitorFeed(rawRedditMonitorFeed),
         workingDir: wd,
       });
       get().reconcileQueues();
@@ -2351,14 +2418,19 @@ export const useStore = create<State>((set, get) => {
       if (isMonitorSchedule(run)) {
         const entry = get().skillCategories.flatMap((category) => category.entries)
           .find((candidate) => candidate.id === run.skillId);
-        if (!entry?.watchlist?.monitor || get().xReplyBusy) continue;
+        // The engines keep separate tab locks, but one profile can serve both
+        // X and Reddit, so a monitoring pass also waits out the other engine.
+        const busy = get().xReplyBusy || get().redditMonitorBusy;
+        if (!entry?.watchlist?.monitor || busy) continue;
         const firedRuns = get().scheduledRuns.map((r) =>
           r.id === run.id ? { ...r, lastFiredAt: now(), lastError: undefined } : r,
         );
         set({ scheduledRuns: firedRuns });
         persistSchedules(firedRuns);
-        trackEvent("scheduled_run_fired", { agent: "x-monitor", has_conversation: false });
-        void get().runXMonitorPass(entry, { profileName: run.profileName });
+        const kind = run.kind === "reddit-monitor" ? "reddit-monitor" : "x-monitor";
+        trackEvent("scheduled_run_fired", { agent: kind, has_conversation: false });
+        if (kind === "reddit-monitor") void get().runRedditMonitorPass(entry, { profileName: run.profileName });
+        else void get().runXMonitorPass(entry, { profileName: run.profileName });
         continue;
       }
       const scheduledConversation = run.conversationId
@@ -3159,6 +3231,9 @@ export const useStore = create<State>((set, get) => {
         xReplyState: normalizeXReplyState(null),
         xMonitorState: normalizeMonitorState(null),
         xMonitorFeed: emptyXMonitorFeed(),
+        redditMonitorState: normalizeRedditMonitorState(null),
+        redditMonitorFeed: emptyRedditMonitorFeed(),
+        redditMonitorNotice: undefined,
         projectRevisions: {},
         workspaceRevisions: {},
         workspaceSetupRequired: false,
@@ -6072,7 +6147,8 @@ export const useStore = create<State>((set, get) => {
   // and is started and stopped there too. Start creates it the first time and
   // enables it after that; the first read goes out at once.
   startMonitorSchedule: async (entry, options) => {
-    if (!entry.watchlist?.monitor) return;
+    const engine = entry.watchlist?.monitor?.engine;
+    if (!engine) return;
     const existing = get().monitorScheduleFor(entry.id);
     const intervalMinutes = clampMonitorInterval(options.intervalMinutes ?? existing?.intervalMinutes ?? DEFAULT_MONITOR_INTERVAL_MINUTES);
     const profileName = options.profileName ?? existing?.profileName;
@@ -6084,7 +6160,7 @@ export const useStore = create<State>((set, get) => {
       ? { ...existing, enabled: true, intervalMinutes, profileName, lastFiredAt: dueNow, lastError: undefined }
       : {
         id: uid(),
-        kind: "x-monitor",
+        kind: engine,
         skillId: entry.id,
         title: `${entry.title} monitoring`,
         prompt: "",
@@ -6104,11 +6180,42 @@ export const useStore = create<State>((set, get) => {
       : [...get().scheduledRuns, run];
     persistSchedules(scheduledRuns);
     set({ scheduledRuns });
-    trackEvent("x_monitor_schedule_started", { interval_minutes: intervalMinutes, created: !existing });
+    trackEvent(engine === "reddit-monitor" ? "reddit_monitor_schedule_started" : "x_monitor_schedule_started", { interval_minutes: intervalMinutes, created: !existing });
     await get().tickScheduledRuns();
   },
 
   openMonitorSite: async (entry, profileName) => {
+    if (entry.watchlist?.monitor?.engine === "reddit-monitor") {
+      if (get().redditMonitorBusy) return;
+      const profile = profileName ?? get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+      set({ redditMonitorBusy: true, redditMonitorStep: "Opening reddit.com", redditMonitorNotice: undefined });
+      try {
+        const profileArgs = await prepareMonitorSession(profile, (step) => set({ redditMonitorStep: step }));
+        // Opening reddit.com is also where the panel learns who is signed in,
+        // so the account shows before monitoring has ever run.
+        set({ redditMonitorStep: "Reading the signed-in account" });
+        const check = await checkRedditAccount({ browser: cliBrowser(profileArgs), log: redditMonitorLog });
+        if (check.blocked) {
+          // A refusal says nothing about who is signed in.
+          set({ redditMonitorNotice: check.blocked });
+        } else {
+          const previous = get().redditMonitorState.account;
+          const handle = check.handle ?? previous?.handle;
+          const redditMonitorState: RedditMonitorState = {
+            ...get().redditMonitorState,
+            account: { ...(handle ? { handle } : {}), signedIn: check.signedIn, checkedAt: now() },
+          };
+          void saveJson(REDDIT_MONITOR_STATE_FILE, redditMonitorState);
+          set({ redditMonitorState });
+        }
+      } catch (error) {
+        redditMonitorLog({ t: new Date().toISOString(), ev: "open.error", error: xReplyErrorText(error) });
+        set({ redditMonitorNotice: friendlyXReplyError(error) });
+      } finally {
+        set({ redditMonitorBusy: false, redditMonitorStep: undefined });
+      }
+      return;
+    }
     const host = selectorTargetHost(entry.selector);
     if (!host || get().xReplyBusy) return;
     set({ xReplyBusy: true, xReplyStep: `Opening ${host}` });
@@ -6137,7 +6244,11 @@ export const useStore = create<State>((set, get) => {
     const run = get().monitorScheduleFor(skillId);
     if (!run) return;
     get().setScheduledRunEnabled(run.id, false);
-    if (xMonitorPassActive) xReplyStopRequested = true;
+    if (run.kind === "reddit-monitor") {
+      if (redditMonitorPassActive) redditMonitorStopRequested = true;
+    } else if (xMonitorPassActive) {
+      xReplyStopRequested = true;
+    }
   },
 
   setMonitorScheduleInterval: (skillId, intervalMinutes) => {
@@ -6200,6 +6311,82 @@ export const useStore = create<State>((set, get) => {
       xMonitorPassActive = false;
       set({ xReplyBusy: false, xReplyStep: undefined });
     }
+  },
+
+  // One Reddit monitoring pass on its own profile. It reads and never acts;
+  // answering a match is the reply agent's job, with the user's approval.
+  runRedditMonitorPass: async (entry, options) => {
+    if (get().redditMonitorBusy) return;
+    const profileName = options?.profileName ?? get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+    redditMonitorStopRequested = false;
+    redditMonitorPassActive = true;
+    set({ redditMonitorBusy: true, redditMonitorStep: "Preparing the browser session", redditMonitorNotice: undefined });
+    redditMonitorLog({ t: new Date().toISOString(), ev: "run.start", profile: profileName, app: __APP_VERSION__ });
+    try {
+      const profileArgs = await prepareMonitorSession(profileName, (step) => set({ redditMonitorStep: step }));
+      const result = await runRedditPass({
+        browser: cliBrowser(profileArgs),
+        // The schedule already says how often to look, so every pass reads
+        // the subscriber counts too instead of waiting out a throttle of its own.
+        state: withRedditMonitorSettings(get().redditMonitorState, { countsIntervalMs: 0 }),
+        log: redditMonitorLog,
+        onStep: (step) => set({ redditMonitorStep: step }),
+        shouldStop: () => redditMonitorStopRequested,
+      });
+      const at = result.state.lastPass?.at ?? now();
+      const redditMonitorFeed = withRedditPass(get().redditMonitorFeed, {
+        matches: result.matches,
+        events: result.events,
+        read: result.summary.sourcesRead > 0,
+      }, at);
+      // What the panel changed while the pass ran is the user's latest word.
+      const redditMonitorState: RedditMonitorState = { ...result.state, settings: get().redditMonitorState.settings };
+      void saveJson(REDDIT_MONITOR_STATE_FILE, redditMonitorState);
+      void saveJson(REDDIT_MONITOR_FEED_FILE, redditMonitorFeed);
+      set({ redditMonitorState, redditMonitorFeed });
+      trackEvent("reddit_monitor_pass_finished", {
+        new_items: result.summary.newItems,
+        urgent: result.summary.urgent,
+        signed_in: result.summary.signedIn,
+        blocked: !!result.summary.blocked,
+        rate_limited: result.summary.rateLimited,
+      });
+    } catch (error) {
+      redditMonitorLog({ t: new Date().toISOString(), ev: "run.error", error: xReplyErrorText(error) });
+      const at = now();
+      const redditMonitorState: RedditMonitorState = {
+        ...get().redditMonitorState,
+        lastPass: { at, finishedAt: at, newItems: 0, urgent: 0, countChanges: 0, notes: [friendlyXReplyError(error)] },
+      };
+      void saveJson(REDDIT_MONITOR_STATE_FILE, redditMonitorState);
+      set({ redditMonitorState });
+      trackEvent("reddit_monitor_pass_failed", {});
+    } finally {
+      redditMonitorPassActive = false;
+      set({ redditMonitorBusy: false, redditMonitorStep: undefined });
+    }
+  },
+
+  updateRedditMonitorSettings: (patch) => {
+    const redditMonitorState = withRedditMonitorSettings(get().redditMonitorState, patch);
+    void saveJson(REDDIT_MONITOR_STATE_FILE, redditMonitorState);
+    set({ redditMonitorState });
+  },
+
+  setRedditMatchDone: (key, done) => {
+    const redditMonitorFeed = withRedditDone(get().redditMonitorFeed, key, done);
+    void saveJson(REDDIT_MONITOR_FEED_FILE, redditMonitorFeed);
+    set({ redditMonitorFeed });
+  },
+
+  // Replying to a specific item is a browser flow only (skills/reddit/SKILL.md),
+  // so the hand-off always goes to the browser transport.
+  draftRedditReply: async (entry, match, profileName) => {
+    if (!entry.watchlist) return;
+    const transports = transportsOf(entry.watchlist, entry.runtime);
+    const browser = transports.find((transport) => !transport.runtime) ?? get().watchlistTransportFor(entry);
+    trackEvent("reddit_monitor_reply_requested", { urgency: match.triage.urgency, kind: match.item.kind, source: match.source.kind });
+    await get().useSkillInChat(transportEntry(entry, browser), redditReplyTask(match, profileName));
   },
 
   // Adding an account subscribes it right away: the bell goes on and the

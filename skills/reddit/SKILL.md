@@ -8,6 +8,15 @@ description: Use for Reddit account work - sign in, browse a community, read pos
 Two transports do the same Reddit work. **Pick one before the first command**,
 then stay on it for the whole task.
 
+The skill has a second mode, Monitoring, that NextBrowser runs itself with the
+open-source engine `@nextbrowser-oss/reddit-monitoring`. It reads the signed-in
+account's inbox, the watched communities and a Reddit search for the user's
+keywords, ranks every match by urgency, and never votes, comments, replies, or
+marks anything read. A chat request to monitor Reddit belongs in that panel:
+point the user there instead of polling Reddit from chat. A match the panel
+hands you is one item to answer: draft the reply, show it, and post only what
+the user approves.
+
 ## Choose the transport
 
 - The user named one - "in the browser", "clawbrowser", "on the phone", "cloud

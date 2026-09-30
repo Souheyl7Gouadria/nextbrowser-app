@@ -46,8 +46,12 @@ export interface SkillWatchlist {
   monitor?: SkillWatchlistMonitor;
 }
 
+/// The built-in monitoring engines: each reads its own site through the
+/// skill's browser profile, and each is a schedule kind of its own.
+export type MonitorEngine = "x-monitor" | "reddit-monitor";
+
 export interface SkillWatchlistMonitor {
-  engine: "x-monitor";
+  engine: MonitorEngine;
   /// Switch labels, for example "Monitoring" and "Reply agent".
   label: string;
   replyLabel: string;

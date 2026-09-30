@@ -26,8 +26,10 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   const workspaces = useStore((s) => s.workspaces);
   const selectedProfile = useStore((s) => s.selectedProfile);
   const skillEntries = useStore((s) => s.skillCategories).flatMap((category) => category.entries);
-  const monitorState = useStore((s) => s.xMonitorState);
-  const monitorBusy = useStore((s) => s.xReplyBusy);
+  const xMonitorState = useStore((s) => s.xMonitorState);
+  const xMonitorBusy = useStore((s) => s.xReplyBusy);
+  const redditMonitorState = useStore((s) => s.redditMonitorState);
+  const redditMonitorBusy = useStore((s) => s.redditMonitorBusy);
   const startMonitor = useStore((s) => s.startMonitorSchedule);
   const stopMonitor = useStore((s) => s.stopMonitorSchedule);
 
@@ -101,9 +103,9 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
               key={run.id}
               run={run}
               entry={skillEntries.find((entry) => entry.id === run.skillId)}
-              lastPassAt={monitorState.lastPass?.at}
-              note={monitorState.lastPass?.notes[0]}
-              busy={monitorBusy}
+              lastPassAt={(run.kind === "reddit-monitor" ? redditMonitorState : xMonitorState).lastPass?.at}
+              note={(run.kind === "reddit-monitor" ? redditMonitorState : xMonitorState).lastPass?.notes[0]}
+              busy={run.kind === "reddit-monitor" ? redditMonitorBusy : xMonitorBusy}
               menuOpen={menuRunId === run.id}
               menuRef={menuRef}
               onMenu={() => setMenuRunId(menuRunId === run.id ? null : run.id)}
@@ -222,7 +224,7 @@ function since(timestamp?: number): string {
   return `${Math.round(elapsed / 86_400_000)}d ago`;
 }
 
-/// A monitoring schedule reads x.com through its skill's engine rather than
+/// A monitoring schedule reads its site through its skill's engine rather than
 /// sending a prompt, so its row says what it watches and offers Start and Stop
 /// instead of a prompt to edit.
 function MonitorScheduleRow({ run, entry, lastPassAt, note, busy, menuOpen, menuRef, onMenu, onCloseMenu, onStart, onStop, onDelete }: {

@@ -13,6 +13,7 @@ import {
 import { replyBudget } from "../lib/xreply/state";
 import { Icon } from "./Icon";
 import { SkillLogo } from "./SkillLogo";
+import { RedditMonitorView } from "./RedditMonitorView";
 import { XMonitorView } from "./XMonitorView";
 
 type PanelMode = "reply" | "monitor";
@@ -116,6 +117,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
     try { localStorage.setItem(modeKey(entry.id), next); } catch { /* a view preference */ }
   };
   const monitoring = !!monitor && mode === "monitor";
+  const redditMonitorAccount = useStore((s) => s.redditMonitorState.account);
 
   useEffect(() => {
     if (!engine) void loadWatchReports(entry);
@@ -243,7 +245,9 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <strong>{monitor ? entry.title : watchlist.title}</strong>
             <span className="muted small">
               {monitoring
-                ? (signedIn && publisher?.handle ? `${prefix}${publisher.handle} · monitoring` : "Feed and followers")
+                ? monitor.engine === "reddit-monitor"
+                  ? (redditMonitorAccount?.signedIn && redditMonitorAccount.handle ? `u/${redditMonitorAccount.handle} · monitoring` : "Mentions and keywords")
+                  : (signedIn && publisher?.handle ? `${prefix}${publisher.handle} · monitoring` : "Feed and followers")
                 : signedIn && publisher?.handle
                   ? `${prefix}${publisher.handle} · ${activeCount} watched`
                   : `${activeCount || "No"} watched`}
@@ -277,7 +281,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </div>
         )}
 
-        {monitoring ? <XMonitorView entry={entry} /> : (<>
+        {monitoring ? (monitor.engine === "reddit-monitor" ? <RedditMonitorView entry={entry} /> : <XMonitorView entry={entry} />) : (<>
         {transports.length > 1 && (
           <div className="row watchlist-profile">
             <label className="muted small">Runs on</label>
