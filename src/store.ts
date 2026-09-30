@@ -113,7 +113,7 @@ import {
   serializeUsage,
 } from "./lib/persistence";
 import { scheduleDue } from "./lib/scheduleDue";
-import { resolveScheduledProfile } from "./lib/scheduleProfile";
+import { availableWorkspaceProfiles, resolveScheduledProfile } from "./lib/scheduleProfile";
 import type {
   AppTab,
   AutomationRecipeResult,
@@ -2467,7 +2467,11 @@ export const useStore = create<State>((set, get) => {
         const workspaceId = run.workspaceId ?? scheduledConversation?.workspaceId;
         const scheduledWorkspace = workspaceId ? get().workspaces.find((workspace) => workspace.id === workspaceId) : undefined;
         if (workspaceId && !scheduledWorkspace) throw new Error("The scheduled workspace no longer exists.");
-        const scheduledProfile = resolveScheduledProfile(run, scheduledWorkspace?.profileNames ?? []);
+        // A VPS profile need not exist in this machine's nextctl inventory.
+        const scheduledProfiles = scheduledTarget === "vps"
+          ? scheduledWorkspace?.profileNames ?? []
+          : availableWorkspaceProfiles(scheduledWorkspace?.profileNames ?? [], get().profiles);
+        const scheduledProfile = resolveScheduledProfile(run, scheduledProfiles);
         if (workspaceId) get().selectWorkspace(workspaceId);
         if (scheduledTarget === "vps") await waitForLocalNextctlIdle(get);
         get().switchAgent(run.agent);

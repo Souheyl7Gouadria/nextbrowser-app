@@ -8,3 +8,10 @@ export function resolveScheduledProfile(run: ScheduledRun, workspaceProfiles: st
   if (workspaceProfiles.length > 1) throw new Error("Choose a browser profile in this schedule before it runs. The currently selected profile is not used automatically.");
   return workspaceProfiles[0];
 }
+
+// Workspace assignments can outlive profiles removed by an agent through
+// nextctl. Only offer profiles that still exist in the browser inventory.
+export function availableWorkspaceProfiles(workspaceProfiles: string[], inventory: { name: string }[]): string[] {
+  const existing = new Set(inventory.map((profile) => profile.name));
+  return workspaceProfiles.filter((name) => existing.has(name));
+}

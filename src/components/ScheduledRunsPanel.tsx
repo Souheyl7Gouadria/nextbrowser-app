@@ -8,6 +8,7 @@ import type { SkillEntry } from "../skillsCatalog";
 import { Icon } from "./Icon";
 import { SkillLogo } from "./SkillLogo";
 import { agentById } from "../agents";
+import { availableWorkspaceProfiles } from "../lib/scheduleProfile";
 
 // Sentinel for the "create a dedicated chat" option in the session selector.
 const NEW_DEDICATED_CHAT = "__new_dedicated_chat__";
@@ -25,6 +26,7 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   const workspaceId = useStore((s) => s.activeWorkspaceId);
   const workspaces = useStore((s) => s.workspaces);
   const selectedProfile = useStore((s) => s.selectedProfile);
+  const profiles = useStore((s) => s.profiles);
   const skillEntries = useStore((s) => s.skillCategories).flatMap((category) => category.entries);
   const xMonitorState = useStore((s) => s.xMonitorState);
   const xMonitorBusy = useStore((s) => s.xReplyBusy);
@@ -58,7 +60,8 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
 
   const editorAgent = editor && editor !== "new" ? editor.agent : currentAgent;
   const editorWorkspace = workspaces.find((workspace) => workspace.id === (editor && editor !== "new" ? editor.workspaceId : workspaceId));
-  const editorProfiles = editorWorkspace?.profileNames ?? [];
+  const editorWorkspaceProfiles = editorWorkspace?.profileNames ?? [];
+  const editorProfiles = availableWorkspaceProfiles(editorWorkspaceProfiles, profiles);
   const editorConversations = conversations
     .filter((conversation) => conversation.agent === editorAgent && conversation.workspaceId === workspaceId)
     .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -173,6 +176,7 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
           run={editor === "new" ? null : editor}
           conversations={editorConversations}
           profiles={editorProfiles}
+          remoteProfiles={editorWorkspaceProfiles}
           initialProfile={editor === "new" ? selectedProfile : undefined}
           agentName={agentById(editorAgent).name}
           onSave={(data) => {
@@ -289,14 +293,16 @@ function ScheduleEditor({
   run,
   conversations,
   profiles,
+  remoteProfiles,
   initialProfile,
   agentName,
   onSave,
   onClose,
 }: {
   run: ScheduledRun | null;
-  conversations: { id: string; title: string }[];
+  conversations: { id: string; title: string; executionTarget?: "local" | "vps" }[];
   profiles: string[];
+  remoteProfiles: string[];
   initialProfile?: string;
   agentName: string;
   onSave: (data: Omit<ScheduledRun, "id" | "agent" | "enabled">) => void;
@@ -312,6 +318,9 @@ function ScheduleEditor({
   const [conversationId, setConversationId] = useState<string | undefined>(
     run?.conversationId,
   );
+  // A VPS profile is intentionally absent from this machine's inventory.
+  const availableProfiles = conversations.find((conversation) => conversation.id === conversationId)?.executionTarget === "vps"
+    ? remoteProfiles : profiles;
   const [profileName, setProfileName] = useState(run?.profileName ?? (initialProfile && profiles.includes(initialProfile) ? initialProfile : profiles.length === 1 ? profiles[0] : ""));
   const titleId = useId();
 
@@ -342,12 +351,12 @@ function ScheduleEditor({
           rows={3}
         />
         <label>Browser profile
-          <select value={profileName} onChange={(event) => setProfileName(event.target.value)}>
-            <option value="">{profiles.length ? "Choose a profile" : "No profiles in this workspace"}</option>
-            {profiles.map((name) => <option key={name} value={name}>{name}</option>)}
+          <select value={availableProfiles.includes(profileName) ? profileName : ""} onChange={(event) => setProfileName(event.target.value)}>
+            <option value="">{availableProfiles.length ? "Choose a profile" : "No profiles in this workspace"}</option>
+            {availableProfiles.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         </label>
-        {profiles.length > 1 && !profileName && <p className="muted small">Choose the profile this task must use. The current sidebar selection may change before the run.</p>}
+        {availableProfiles.length > 1 && !profileName && <p className="muted small">Choose the profile this task must use. The current sidebar selection may change before the run.</p>}
         <label>Repeat
           <select value={repeat} onChange={(event) => setRepeat(event.target.value)}>
             <option value="daily">Daily / selected days</option>
@@ -432,7 +441,7 @@ function ScheduleEditor({
           </button>
           <button
             className="primary"
-            disabled={!weekdays.length || !title.trim() || !prompt.trim() || (profiles.length > 0 && !profileName)}
+            disabled={!weekdays.length || !title.trim() || !prompt.trim() || (profileName ? !availableProfiles.includes(profileName) : availableProfiles.length > 0)}
             onClick={() =>
               onSave({ title: title.trim(), prompt: prompt.trim(), profileName: profileName || undefined, hour, minute, weekdays, conversationId, intervalMinutes: repeat === "daily" ? undefined : interval * (repeat === "hourly" ? 60 : 1), createdAt: Date.now() })
             }
