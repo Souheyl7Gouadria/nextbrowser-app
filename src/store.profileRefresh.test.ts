@@ -117,6 +117,24 @@ it("shows profiles even while a browser status request is slow", async () => {
   await refresh;
 });
 
+it("retries a transient partial inventory before hiding another workspace profile", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({
+    profiles: [{ name: "one" }, { name: "two" }],
+    workspaces: [{ id: "w", name: "Workspace", profileNames: ["one", "two"], profileToolsets: {}, createdAt: 1, updatedAt: 1 }],
+    activeWorkspaceId: "w",
+  });
+  let lists = 0;
+  bridge.invoke.mockImplementation((command, { args } = {}) => {
+    if (command !== "nextctl_run") return Promise.resolve(null);
+    if (args[0] === "profiles") return Promise.resolve(result({ profiles: ++lists === 1 ? [{ name: "one" }] : [{ name: "one" }, { name: "two" }] }));
+    return Promise.resolve(result({ status: "stopped" }));
+  });
+  await useStore.getState().loadProfiles();
+  expect(lists).toBe(2);
+  expect(useStore.getState().profiles.map((profile) => profile.name)).toEqual(["one", "two"]);
+});
+
 it("still applies cloud workspace updates when there are no concurrent local edits", async () => {
   const { useStore } = await import("./store");
   useStore.setState({ authed: true, workspaces: [{ id: "w", name: "Workspace", profileNames: ["one"], profileToolsets: {}, createdAt: 1, updatedAt: 1 }], activeWorkspaceId: "w" });

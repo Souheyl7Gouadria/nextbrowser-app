@@ -292,7 +292,10 @@ async function startAutomationPageRecording(input, deps) {
   if (activeRecorders.size) throw new Error("Stop the current browser recording before starting another one.");
   const profile = String(input.profile || "").trim();
   const runtime = ["clawbrowser", "camoufox", "chromium", "multilogin"].includes(input.runtime) ? input.runtime : "clawbrowser";
-  const args = [...(profile ? ["--profile", profile] : []), "--runtime", runtime, ...(input.runtimeBin ? ["--runtime-bin", input.runtimeBin] : []), "mcp"];
+  const args = [...(profile ? ["--profile", profile] : []), "--runtime", runtime,
+    ...(runtime === "multilogin" && input.multiloginProfileId ? ["--multilogin-profile-id", String(input.multiloginProfileId)] : []),
+    ...(runtime === "multilogin" && input.multiloginFolderId ? ["--multilogin-folder-id", String(input.multiloginFolderId)] : []),
+    ...(input.runtimeBin ? ["--runtime-bin", input.runtimeBin] : []), "mcp"];
   const traceDir = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-recording-"));
   const traceFile = path.join(traceDir, "mcp-actions.jsonl");
   await fs.writeFile(traceFile, "", { mode: 0o600 });

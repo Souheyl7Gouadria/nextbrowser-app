@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
+import { multiloginSelectionForWorkspace } from "../lib/multiloginSelection";
+import { multiloginSessionName } from "../lib/liveStreamTarget";
 import { invoke } from "../electronBridge";
 import { uid } from "../lib/ids";
 import { activeAutomationRecording, AUTOMATION_RECORDING_EVENT, clearActiveAutomationRecording, setActiveAutomationRecording, type ActiveAutomationRecording } from "../lib/automationRecording";
@@ -457,7 +459,6 @@ export function AutomationStudio() {
     const bootstrapAutomation = async () => {
       setStudioError(undefined);
       try {
-        if (workspaceId) await invoke("automation_seed_examples", { workspaceId });
         if (cancelled) return;
         await Promise.all([
           loadWorkflows(),
@@ -548,6 +549,15 @@ export function AutomationStudio() {
     setNotice(undefined);
   };
 
+  const addExamples = async () => {
+    if (!s.authed || !workspaceId) return;
+    try {
+      await invoke("automation_seed_examples", { workspaceId });
+      await Promise.all([loadWorkflows(), loadRecordings(), loadArtifacts()]);
+      setNotice("Example automations added.");
+    } catch (error) { reportError(error); }
+  };
+
   const startRecording = async (destination: "recording" | "workflow" = "recording", source: "hybrid" | "agent" = "hybrid") => {
     if (!s.authed) return setNotice("Connect your Nextbrowser account before recording browser actions.");
     if (!workspaceId) return setStudioError("Create or select a workspace before recording.");
@@ -563,19 +573,25 @@ export function AutomationStudio() {
       let recordingRuntime: string | undefined;
       if (source === "hybrid") {
         const workspaceProfiles = s.workspaces.find((workspace) => workspace.id === workspaceId)?.profileNames ?? [];
-        if (workspaceProfiles.length === 0) {
+        const multilogin = multiloginSelectionForWorkspace(workspaceId);
+        if (multilogin?.kind === "mobile") {
+          return setStudioError("Browser recording is available for Multilogin browser profiles, not cloud phones.");
+        }
+        if (workspaceProfiles.length === 0 && !multilogin) {
           return setStudioError("Create a browser profile in this workspace before recording.");
         }
-        if (!s.selectedProfile && workspaceProfiles.length > 1) {
+        if (!multilogin && !s.selectedProfile && workspaceProfiles.length > 1) {
           return setStudioError("Choose the browser profile you want to record before starting.");
         }
-        recordingProfile = s.selectedProfile || (workspaceProfiles.length === 1 ? workspaceProfiles[0] : undefined);
-        if (!recordingProfile || !workspaceProfiles.includes(recordingProfile)) {
+        recordingProfile = multilogin ? multiloginSessionName(multilogin) : s.selectedProfile || (workspaceProfiles.length === 1 ? workspaceProfiles[0] : undefined);
+        if (!recordingProfile || (!multilogin && !workspaceProfiles.includes(recordingProfile))) {
           return setStudioError("Choose a browser profile from this workspace before recording.");
         }
-        recordingRuntime = selectedBrowserRuntime(recordingProfile);
-        const browserRunning = s.statuses[recordingProfile] === "running";
-        if (!browserRunning) {
+        recordingRuntime = multilogin ? "multilogin" : selectedBrowserRuntime(recordingProfile);
+        if (multilogin) {
+          setNotice(`Starting ${multilogin.name} and opening its Live stream…`);
+          await s.startRemoteStream({ runtime: "multilogin", selection: multilogin });
+        } else if (s.statuses[recordingProfile] !== "running") {
           setNotice(`Starting and verifying ${recordingProfile} before recording…`);
           await s.startProfile(recordingProfile);
           if (useStore.getState().statuses[recordingProfile] !== "running") {
@@ -586,6 +602,8 @@ export function AutomationStudio() {
           recordingId: id,
           profile: recordingProfile,
           runtime: recordingRuntime,
+          multiloginProfileId: multilogin?.id,
+          multiloginFolderId: multilogin?.folderId,
           attach,
         });
         try {
@@ -595,7 +613,8 @@ export function AutomationStudio() {
           // "running". Recover that exact profile once and arm the recorder
           // again instead of exposing CDP/connection-refused internals.
           if (!isUnavailableRecordingSession(error)) throw error;
-          await s.startProfile(recordingProfile);
+          if (multilogin) await s.startRemoteStream({ runtime: "multilogin", selection: multilogin });
+          else await s.startProfile(recordingProfile);
           await armRecorder(true);
         }
       }
@@ -604,7 +623,7 @@ export function AutomationStudio() {
       setRecordingDestination(destination);
       setStudioError(undefined);
       if (s.terminalChat) s.setTerminalChat(false);
-      s.setTab("chat");
+      s.setTab(recordingRuntime === "multilogin" ? "live" : "chat");
       await invoke("app_focus");
     } catch (error) { reportError(error); }
   };
@@ -1396,7 +1415,7 @@ export function AutomationStudio() {
               <div className="capture-card-actions">{playback?.sourceId === run.id && playbackView && !["completed", "failed", "cancelled"].includes(playbackView.phase) ? <div className="capture-running"><Spinner size={13} /><span>{playbackView.phase === "preparing" ? "Preparing…" : playbackView.phase === "stopping" ? "Stopping…" : `${playbackView.progress}% running`}</span></div> : <button className="secondary" disabled={(!quality.reusable && !canRepairMissingStart) || executionBusy} title={executionBusy ? "Stop the running automation first" : canRepairMissingStart ? "Add the missing starting page with AI, then run" : "Run recording"} onClick={() => void replayRecording(run)}><Icon name={canRepairMissingStart ? "sparkles" : "play.fill"} size={12} /> {canRepairMissingStart ? "Repair & run" : "Run again"}</button>}<button className="btn-bordered-prominent" disabled={!quality.reusable} onClick={() => void saveCapture(run)}>Turn into workflow</button><button className="mini" title="Share a safe copy" onClick={() => setShareTarget({ kind: "recording", id: recording.id, title: run.task })}><Icon name="square.and.arrow.up" size={12} /> Share</button><button className="mini danger-text" title="Delete recording" onClick={() => void deleteRecording(recording)}><Icon name="trash" size={12} /> Delete</button></div>
             </article>;
           })}
-          {!recordings.length && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No recordings yet</strong><span>Record and stop a successful browser task to save it here.</span></div>}
+          {!recordings.length && <div className="automation-empty"><Icon name="play.rectangle.on.rectangle.fill" size={28} /><strong>No recordings yet</strong><span>Record and stop a successful browser task to save it here.</span><button className="secondary" disabled={!s.authed || !workspaceId} onClick={() => void addExamples()}>Add examples</button></div>}
         </div>
       </section>}
 
@@ -1409,6 +1428,7 @@ export function AutomationStudio() {
             <button className="workflow-first-run-choice primary-choice" onClick={() => void startRecording("workflow", "hybrid")}><span><Icon name="sparkles" size={16} /></span><strong>Capture from Project Chat</strong><small>Ask the agent to complete a task, then edit the recorded steps.</small></button>
             <button className="workflow-first-run-choice" onClick={() => void createWorkflow()}><span><Icon name="plus" size={16} /></span><strong>Build manually</strong><small>Start with an empty workflow and add visual blocks.</small></button>
           </div>
+          <button className="secondary" disabled={!s.authed || !workspaceId} onClick={() => void addExamples()}>Add examples</button>
         </div>}
         <aside className="workflow-list" aria-hidden={workflowListCollapsed}><div className="workflow-list-title"><span>Workflows</span><div className="workflow-list-controls"><button className="mini" title="Create workflow" aria-label="Create workflow" onClick={() => void createWorkflow()}><Icon name="plus" size={12} /></button><button className="mini" title="Collapse workflow list" aria-label="Collapse workflow list" onClick={() => setWorkflowListCollapsed(true)}><Icon name="chevron.left" size={12} /></button></div></div>{workflows.map((skill) => {
             const running = playback?.sourceKind === "workflow" && playback?.sourceId === skill.id && playbackView && !["completed", "failed", "cancelled"].includes(playbackView.phase);

@@ -68,9 +68,11 @@ function adaptDasbrowserArgs(args, executable) {
   const index = adapted.indexOf("--runtime");
   if (index >= 0) adapted[index + 1] = "chromium";
   else adapted.push("--runtime", "chromium");
-  const binaryIndex = adapted.indexOf("--runtime-bin");
-  if (binaryIndex >= 0) adapted[binaryIndex + 1] = executable;
-  else adapted.push("--runtime-bin", executable);
+  if (executable) {
+    const binaryIndex = adapted.indexOf("--runtime-bin");
+    if (binaryIndex >= 0) adapted[binaryIndex + 1] = executable;
+    else adapted.push("--runtime-bin", executable);
+  }
   return adapted;
 }
 

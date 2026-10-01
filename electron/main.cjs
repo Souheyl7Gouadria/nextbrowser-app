@@ -624,7 +624,11 @@ async function executeNextctlRaw(commandArgs, options = {}) {
   try {
     if (browserRuntime === "multilogin") await initializeMultiloginCredential();
     if (browserRuntime === "dasbrowser") {
-      const executable = await ensureDasbrowserRuntime({ requestId: options.requestId });
+      // Reading status (including the first workspace refresh) must not
+      // install another browser behind the user's back.
+      const executable = requiresBrowserRuntime(adaptedArgs)
+        ? await ensureDasbrowserRuntime({ requestId: options.requestId })
+        : resolveDasbrowserRuntime(dasbrowserRuntimeOptions());
       adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
     } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
       await ensureClawbrowserRuntime(bin, { requestId: options.requestId });
@@ -2144,6 +2148,8 @@ async function invokeCommand(command, args = {}, sender) {
         parameters: args.parameters,
         profile: args.profile,
         runtime: requestedRuntime === "dasbrowser" ? "chromium" : requestedRuntime,
+        multiloginProfileId: args.multiloginProfileId,
+        multiloginFolderId: args.multiloginFolderId,
         runtimeBin,
       }, {
         binary,

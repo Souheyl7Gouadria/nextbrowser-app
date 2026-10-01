@@ -1906,7 +1906,15 @@ export const useStore = create<State>((set, get) => {
     const executionTarget = replyExecutionTargets.get(replyId) ??
       executionTargetForTurn(owningConversation);
     replyProfileBaselines.delete(replyId);
-    if (result.code !== 0) void get().recheckLogin(agentId);
+    const authFailed = result.code !== 0 && /(?:failed to authenticate|oauth session expired|could not be refreshed|not logged in|sign in required|login required)/i.test(`${result.stderr}\n${result.stdout}`);
+    if (authFailed) {
+      // The CLI status command can report a saved login while its OAuth
+      // session is already expired. The real turn is stronger evidence.
+      set((s) => ({ runtime: {
+        ...s.runtime,
+        [agentId]: { ...s.runtime[agentId], loggedIn: false },
+      } }));
+    } else if (result.code !== 0) void get().recheckLogin(agentId);
     const stopped = get().runtime[agentId]?.pendingStop;
     set((s) => {
       const runtime = { ...s.runtime };
@@ -3355,8 +3363,19 @@ export const useStore = create<State>((set, get) => {
     const epoch = accountEpoch;
     const generation = ++profileRefreshGeneration;
     try {
-      const list = await nextctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
+      let list = await nextctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
       if (generation !== profileRefreshGeneration || epoch !== accountEpoch) return;
+      // A transient partial inventory must not make every profile in the
+      // selected workspace disappear after another profile is removed.
+      const previouslyVisible = new Set(get().profiles.map((profile) => profile.name));
+      const missingKnownProfiles = get().workspaces.some((workspace) =>
+        workspace.profileNames.some((name) => previouslyVisible.has(name) && !list.profiles.some((profile) => profile.name === name)),
+      );
+      if (missingKnownProfiles) {
+        const retry = await nextctlJson<{ profiles: Profile[] }>(["profiles", "ls"]);
+        if (generation !== profileRefreshGeneration || epoch !== accountEpoch) return;
+        list = retry;
+      }
       // Render the inventory without waiting for every browser status command.
       set({ profiles: list.profiles });
       const statuses: Record<string, string> = {};

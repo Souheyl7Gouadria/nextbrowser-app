@@ -147,9 +147,9 @@ export function OnboardingView() {
 
   const openProfileSetup = () => {
     trackEvent("onboarding_setup_opened", { setup: "profile" });
+    suspendForSetup();
     setTab("guide");
     setSidebarCollapsed(false);
-    finish();
     window.dispatchEvent(new CustomEvent("nextbrowser:open-profile-creator"));
   };
 
@@ -301,7 +301,7 @@ export function OnboardingView() {
                   {PRIMARY_AGENTS.map((item) => {
                     const selected = item.id === agentId;
                     return (
-                      <div className={"onboarding-agent-option" + (selected ? " is-selected" : "")} key={item.id}>
+                      <div className={"onboarding-agent-option" + (selected ? " is-selected" : "") + (selected && ready ? " is-connected" : "")} key={item.id}>
                         <button
                           type="button"
                           className="onboarding-agent-select"
@@ -311,7 +311,7 @@ export function OnboardingView() {
                           <span className="onboarding-agent-option-head">
                             <span className="onboarding-agent-icon"><Icon name="cpu.fill" size={18} /></span>
                             <strong>{item.name}</strong>
-                            {selected && <Icon name="checkmark.circle.fill" size={17} className="ok" />}
+                            {selected && ready && <Icon name="checkmark.circle.fill" size={17} className="ok" />}
                           </span>
                         </button>
                       </div>
@@ -319,31 +319,12 @@ export function OnboardingView() {
                   })}
                 </div>
 
-                <div className={"onboarding-agent-connect" + (ready ? " is-ready" : "")}>
-                  <div>
-                    <strong>{agent.name}</strong>
-                  </div>
-                  <button
-                    type="button"
-                    className={ready ? "btn-bordered onboarding-agent-connected" : "btn-bordered-prominent"}
-                    disabled={ready || authorizing}
-                    onClick={connectAgent}
-                  >
+                {!ready && <div className="onboarding-agent-connect">
+                  <button type="button" className="btn-bordered-prominent" disabled={authorizing} onClick={connectAgent}>
                     {authorizing && <Spinner size={13} />}
-                    {ready
-                      ? (
-                        <>
-                          <Icon name="checkmark.circle.fill" size={15} />
-                          Connected
-                        </>
-                      )
-                      : authorizing
-                        ? "Checking…"
-                        : agentNeedsLogin
-                          ? `Sign in to ${agent.name}`
-                          : `Connect ${agent.name}`}
+                    {authorizing ? "Checking…" : agentNeedsLogin ? `Sign in to ${agent.name}` : `Connect ${agent.name}`}
                   </button>
-                </div>
+                </div>}
                 {agentError && (
                   <div className="onboarding-agent-error error small">
                     <UserFacingError message={agentError} surface="onboarding" />
@@ -375,6 +356,7 @@ export function OnboardingView() {
                     <Icon name="chevron.right" size={13} />
                   </button>
                 </div>
+                <p className="muted small">Saved profiles are browser settings. A browser toolset downloads separately when you first start it.</p>
               </div>
             )}
 

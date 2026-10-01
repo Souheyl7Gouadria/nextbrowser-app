@@ -64,8 +64,8 @@ describe("agent onboarding step", () => {
     const html = renderToStaticMarkup(<OnboardingView />);
 
     expect(html).toContain(">Setup agent</h2>");
-    expect(html).toContain("onboarding-agent-connected");
-    expect(html).toContain("Connected");
+    expect(html).toContain("is-selected");
+    expect(html).not.toContain("onboarding-agent-connect");
     expect(html).not.toContain("Claude Code uses its CLI");
     expect(html).not.toContain("Claude Code setup guide");
     expect(html).not.toContain("Download ChatGPT desktop app");

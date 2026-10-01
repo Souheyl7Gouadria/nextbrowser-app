@@ -618,6 +618,14 @@ export function ChatView() {
                 }
               }}
               onStop={() => s.stopRunning()}
+              onRetry={() => {
+                const index = messages.findIndex((candidate) => candidate.id === m.id);
+                const user = [...messages.slice(0, index)].reverse().find((candidate) => candidate.role === "user");
+                if (!user) return;
+                setDraft(user.text);
+                setAttachments(user.attachments ?? []);
+                window.requestAnimationFrame(() => composerRef.current?.focus());
+              }}
               running={running && m.status === "streaming"}
               queuedReplyId={m.role === "user" ? queuedReplyForMessage(m)?.id : undefined}
               onShowPrompt={() => {
@@ -945,6 +953,7 @@ function MessageBubble({
   onCancel,
   onEdit,
   onStop,
+  onRetry,
   running,
   queuedReplyId,
   onShowPrompt,
@@ -957,6 +966,7 @@ function MessageBubble({
   onCancel: () => void;
   onEdit: () => void;
   onStop: () => void;
+  onRetry: () => void;
   running: boolean;
   queuedReplyId?: string;
   onShowPrompt: () => void;
@@ -1137,6 +1147,9 @@ function MessageBubble({
             <button className="save-workflow-btn" disabled={savingWorkflow} title="Save this browser workflow as a local skill" onClick={onSaveWorkflow}>
               {savingWorkflow && <Spinner size={11} />} {savingWorkflow ? "Preparing…" : "Save as skill"}
             </button>
+          )}
+          {(m.status === "failed" || m.status === "timedOut") && (
+            <button className="save-workflow-btn" onClick={onRetry} title="Review the original request before sending it again">Retry</button>
           )}
           <span>{formatTime(m.createdAt)}</span>
         </div>

@@ -883,7 +883,7 @@ export function App() {
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const agentReady = useStore((s) => s.agentReady());
-  const agentGateOpen = !checking && authed && !agentReady && !agentGateDismissed && preview !== "main";
+  const agentGateOpen = !checking && authed && !agentReady && !showOnboarding && !agentGateDismissed && preview !== "main";
   const workspaceSetupRequired = useStore((s) => {
     return s.authed && s.workspacesLoaded && s.workspaceSetupRequired;
   });
@@ -1652,7 +1652,7 @@ export function App() {
       {agentGateOpen && (
         <AgentConnectionGate onDismiss={() => setAgentGateDismissed(true)} />
       )}
-      {showOnboarding && agentReady && !workspaceSetupRequired && <OnboardingView />}
+      {showOnboarding && <OnboardingView />}
       {!checking && agentReady && workspaceSetupRequired && workspaceSetupAuto === "failed" && <WorkspaceSetupGate />}
       {browserRuntimeInstall && <BrowserRuntimeInstallModal status={browserRuntimeInstall} onCancel={() => {
         if (browserRuntimeInstall.requestId) void invoke("nextctl_cancel", { requestId: browserRuntimeInstall.requestId });

@@ -34,6 +34,9 @@ test("adapts the app toolset to nextctl's chromium CDP runtime", () => {
   assert.deepEqual(adaptDasbrowserArgs(args, "/browser"), [
     "start", "--profile", "work", "--runtime", "chromium", "--format", "json", "--runtime-bin", "/browser",
   ]);
+  assert.deepEqual(adaptDasbrowserArgs(["status", "--profile", "work", "--runtime", "dasbrowser"], null), [
+    "status", "--profile", "work", "--runtime", "chromium",
+  ]);
 });
 
 test("copies macOS app bundles without resolving their relative framework symlinks", async (t) => {

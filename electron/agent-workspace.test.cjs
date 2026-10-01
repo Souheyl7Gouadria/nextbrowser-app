@@ -275,8 +275,8 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.doesNotMatch(sidebar, /status: "recording"/);
   assert.match(sidebar, /automation_recording_put[\s\S]*status: "completed"/);
   assert.doesNotMatch(studio, /else \{\s*s\.setTab\("live"\)/);
-  assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*s\.setTab\("chat"\)/);
-  assert.match(studio, /s\.setTab\("chat"\);\s*await invoke\("app_focus"\)/);
+  assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*s\.setTab\(recordingRuntime === "multilogin" \? "live" : "chat"\)/);
+  assert.match(studio, /s\.setTab\(recordingRuntime === "multilogin" \? "live" : "chat"\);\s*await invoke\("app_focus"\)/);
   assert.match(main, /case "app_focus":[\s\S]*focusMainWindow\(\)/);
   assert.match(main, /case "app_focus":[\s\S]*setTimeout\(\(\) => focusMainWindow\(\), 400\)/);
   assert.match(main, /process\.platform === "darwin"\) app\.focus\(\{ steal: true \}\)/);

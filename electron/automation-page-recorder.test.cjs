@@ -96,6 +96,20 @@ test("recording can be armed before a stopped browser profile is launched", asyn
   assert.equal(result.title, "Example");
 });
 
+test("Multilogin recording binds the selected browser and folder", async () => {
+  let spawnArgs;
+  await startAutomationPageRecording({
+    recordingId: "multilogin-browser", profile: "mlx-browser-browser-1", runtime: "multilogin",
+    multiloginProfileId: "browser-1", multiloginFolderId: "folder-1", attach: false,
+  }, { binary: "nextctl", env: {}, spawnImpl: (_binary, args) => { spawnArgs = args; throw new Error("unexpected spawn"); } });
+  await assert.rejects(attachAutomationPageRecording("multilogin-browser"), /unexpected spawn/);
+  assert.deepEqual(spawnArgs, [
+    "--profile", "mlx-browser-browser-1", "--runtime", "multilogin",
+    "--multilogin-profile-id", "browser-1", "--multilogin-folder-id", "folder-1", "mcp",
+  ]);
+  await stopAutomationPageRecording("multilogin-browser");
+});
+
 test("recording merges successful nextctl MCP extraction calls from the local trace", async () => {
   const server = fakeMCP((message) => {
     if (message.method === "initialize") return { protocolVersion: "2025-03-26", capabilities: {} };
