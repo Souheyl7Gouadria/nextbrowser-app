@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { RemoteControlClient, type InputEnvelope, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
 import { useStore } from "../store";
 import { actionFailureMessage, internalError } from "../lib/userFacingError";
+import { invoke } from "../electronBridge";
 import {
   MULTILOGIN_SELECTION_EVENT,
   multiloginSelectionForWorkspace,
@@ -70,6 +71,9 @@ export function LiveView({ active }: { active: boolean }) {
     () => multiloginSelectionForWorkspace(activeWorkspaceID),
   );
   const remoteClientRef = useRef<RemoteControlClient | null>(null);
+  const activeRemoteSessionRef = useRef<RemoteStreamInfo | null>(null);
+  const remoteCloseRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingRemoteCloseIDsRef = useRef<Set<string>>(new Set());
   const remoteEmbedRef = useRef<HTMLDivElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const keyboardSinkRef = useRef<HTMLTextAreaElement | null>(null);
@@ -106,8 +110,29 @@ export function LiveView({ active }: { active: boolean }) {
   const streamUrl = streamInfo?.viewer_url || streamInfo?.dashboard_url || "";
   const nativeViewer = !!streamInfo?.viewer_ws_url;
 
+  const closeRemoteSession = async (id: string) => {
+    const result = await invoke<{ code: number }>("nextctl_run", {
+      args: ["remote", "close", id], timeoutMs: 15_000,
+    });
+    if (result.code !== 0) throw new Error("The previous Live session could not be closed. Update nextctl and retry.");
+    pendingRemoteCloseIDsRef.current.delete(id);
+  };
+
+  const releaseRemoteSession = (info: RemoteStreamInfo | null) => {
+    if (!info?.id) return;
+    pendingRemoteCloseIDsRef.current.add(info.id);
+    remoteCloseRef.current = remoteCloseRef.current.catch(() => undefined).then(async () => {
+      await closeRemoteSession(info.id);
+    });
+    // Stop may be triggered by a tab switch or component cleanup, without a
+    // following start() to observe the rejection.
+    void remoteCloseRef.current.catch(() => undefined);
+  };
+
   const stop = () => {
     streamGeneration.current += 1;
+    releaseRemoteSession(activeRemoteSessionRef.current);
+    activeRemoteSessionRef.current = null;
     if (inactiveTimerRef.current !== null) {
       window.clearTimeout(inactiveTimerRef.current);
       inactiveTimerRef.current = null;
@@ -200,14 +225,27 @@ export function LiveView({ active }: { active: boolean }) {
     setPendingRemoteTab("");
     setState("connecting");
     try {
+      await remoteCloseRef.current.catch(() => undefined);
+      // A transient close failure is retried when the user tries Live again.
+      // Never spend another backend slot while an older one may remain open.
+      for (const id of pendingRemoteCloseIDsRef.current) await closeRemoteSession(id);
+      if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) return;
       const target = profileOptions.find((option) => option.key === requestedKey)?.target;
       if (!target) throw new Error("Select a profile in this workspace first.");
       const info = await s.startRemoteStream(target);
-      if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) return;
+      if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) {
+        releaseRemoteSession(info);
+        return;
+      }
+      activeRemoteSessionRef.current = info;
       setStreamInfo(info);
       await connectRemoteViewer(info);
     } catch (error) {
       if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) return;
+      remoteClientRef.current?.close();
+      remoteClientRef.current = null;
+      releaseRemoteSession(activeRemoteSessionRef.current);
+      activeRemoteSessionRef.current = null;
       setState("error");
       setError(actionFailureMessage("We couldn't start Live View.", "LIVE_VIEW_START_FAILED", error));
     }
@@ -327,6 +365,8 @@ export function LiveView({ active }: { active: boolean }) {
     if (inactiveTimerRef.current !== null) window.clearTimeout(inactiveTimerRef.current);
     if (inputWarningTimerRef.current !== null) window.clearTimeout(inputWarningTimerRef.current);
     remoteClientRef.current?.close();
+    releaseRemoteSession(activeRemoteSessionRef.current);
+    activeRemoteSessionRef.current = null;
   }, []);
 
   useEffect(() => {

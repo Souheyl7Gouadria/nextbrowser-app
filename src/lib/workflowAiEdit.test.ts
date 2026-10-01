@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseWorkflowAiEdit, workflowAiEditPrompt } from "./workflowAiEdit";
+import { parseWorkflowAiEdit, workflowAiEditPrompt, workflowAiEditRepairPrompt } from "./workflowAiEdit";
 import type { BrowserWorkflowSkill } from "../types";
 
 const workflow: BrowserWorkflowSkill = {
@@ -15,6 +15,18 @@ describe("workflow AI editing", () => {
     expect(prompt).toContain("Change top 5 to top 10");
     expect(prompt).toContain("replay remains deterministic");
     expect(prompt).toContain('"limit": 5');
+  });
+
+  it("gives a rejected page script one constrained repair attempt", () => {
+    const rejected = {
+      title: workflow.title, domain: workflow.domain, task: workflow.task,
+      capability: workflow.capability, summary: "Added data collection.",
+      actions: [{ tool: "evaluate", arguments: { expression: "fetch(location.href)" } }],
+    };
+    const prompt = workflowAiEditRepairPrompt(workflow, "Collect two rows", rejected, "Step 2 needs a safe read-only page data script.");
+    expect(prompt).toContain("Step 2 needs a safe read-only page data script.");
+    expect(prompt).toContain("do not assign DOM properties, call fetch");
+    expect(prompt).toContain("Collect two rows");
   });
 
   it("parses a JSON edit surrounded by agent output", () => {

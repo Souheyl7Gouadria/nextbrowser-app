@@ -57,6 +57,16 @@ Current workflow:
 ${JSON.stringify({ title: workflow.title, domain: workflow.domain, task: workflow.task, capability: workflow.capability, actions: workflow.actions }, null, 2)}`;
 }
 
+export function workflowAiEditRepairPrompt(workflow: BrowserWorkflowSkill, request: string, rejected: WorkflowAiEdit, reason: string): string {
+  return `${workflowAiEditPrompt(workflow, request)}
+
+Your previous proposed recipe was rejected by the workflow validator: ${reason}
+Correct the recipe and return the complete JSON object again. Keep the requested behavior and all safe steps. For a page data script, use only synchronous, read-only DOM queries; do not assign DOM properties, call fetch, access storage or cookies, or invoke page controls. If a script is unnecessary, use extract with a results container and named fields instead.
+
+Rejected recipe:
+${JSON.stringify(rejected)}`;
+}
+
 export function parseWorkflowAiEdit(raw: string): WorkflowAiEdit | undefined {
   const value = firstJsonObject(raw);
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;

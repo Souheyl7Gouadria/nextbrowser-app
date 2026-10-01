@@ -91,6 +91,16 @@ describe("hybrid browser recording", () => {
     ]);
   });
 
+  it("names a manual recording after its captured destination instead of the verification tab", () => {
+    const result = capturedRunFromManualRecording("manual-github", {
+      url: "clawbrowser://verify/",
+      title: "Clawbrowser Verification",
+      actions: [{ tool: "open", arguments: { url: "https://github.com/nextbrowser-oss/nextbrowser-app/commits/main" } }],
+    });
+    expect(result?.conversationTitle).toBe("Manual recording — github.com");
+    expect(result?.task).toContain("github.com");
+  });
+
   it("keeps an agent-only recording when no page events were observable", () => {
     const agent = agentRun();
     expect(capturedRunFromHybridRecording("agent", { actions: [] }, agent)).toBe(agent);

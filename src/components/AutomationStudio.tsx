@@ -17,7 +17,7 @@ import { Icon, Spinner } from "./Icon";
 import { activeAutomationExecution, automationExecutionTimeline, automationExecutionView, canContinueWithoutRemoteRunHistory, AUTOMATION_EXECUTION_EVENT, clearActiveAutomationExecution, setActiveAutomationExecution, withAutomationExecutionEvent, type AutomationExecution } from "../lib/automationExecution";
 import { userFacingBrowserError } from "../lib/userFacingBrowserError";
 import { agentById, agentInvocation } from "../agents";
-import { parseWorkflowAiEdit, workflowAiEditPrompt } from "../lib/workflowAiEdit";
+import { parseWorkflowAiEdit, workflowAiEditPrompt, workflowAiEditRepairPrompt, type WorkflowAiEdit } from "../lib/workflowAiEdit";
 import { automationRepairTask, shouldAutoRepairAutomation } from "../lib/automationRepair";
 import { automationTrustSummary, trustEffectLabel } from "../lib/automationTrust";
 
@@ -1020,20 +1020,22 @@ export function AutomationStudio() {
     setNotice(undefined);
     try {
       const agent = agentById(s.agentId);
-      const prompt = workflowAiEditPrompt(draft, workflowAiRequest);
-      const invocation = agentInvocation(agent, prompt);
-      const { args, stdinText } = agent.id === "codex"
-        ? { args: ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"], stdinText: prompt }
-        : agent.id === "claude"
-          ? { args: ["-p", "--permission-mode", "dontAsk", "--tools", "", prompt], stdinText: null }
-          : { args: invocation.args, stdinText: invocation.stdin ?? null };
-      const result = await invoke<{ code: number; stdout: string; stderr: string }>("workflow_author_run", {
-        binary: agent.binary, envVar: agent.envVar, args, stdinText, workingDir: s.workingDir || null,
-      });
-      if (result.code !== 0) throw new Error(result.stderr || `${agent.name} could not edit this workflow.`);
-      const edit = parseWorkflowAiEdit(result.stdout);
-      if (!edit) throw new Error("The agent did not return a complete workflow recipe. Your current workflow was not changed.");
-      const candidate: BrowserWorkflowSkill = {
+      const author = async (prompt: string) => {
+        const invocation = agentInvocation(agent, prompt);
+        const { args, stdinText } = agent.id === "codex"
+          ? { args: ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"], stdinText: prompt }
+          : agent.id === "claude"
+            ? { args: ["-p", "--permission-mode", "dontAsk", "--tools", "", prompt], stdinText: null }
+            : { args: invocation.args, stdinText: invocation.stdin ?? null };
+        const result = await invoke<{ code: number; stdout: string; stderr: string }>("workflow_author_run", {
+          binary: agent.binary, envVar: agent.envVar, args, stdinText, workingDir: s.workingDir || null,
+        });
+        if (result.code !== 0) throw new Error(result.stderr || `${agent.name} could not edit this workflow.`);
+        const edit = parseWorkflowAiEdit(result.stdout);
+        if (!edit) throw new Error("The agent did not return a complete workflow recipe. Your current workflow was not changed.");
+        return edit;
+      };
+      const toCandidate = (edit: WorkflowAiEdit): BrowserWorkflowSkill => ({
         ...draft,
         title: edit.title,
         domain: edit.domain,
@@ -1044,8 +1046,17 @@ export function AutomationStudio() {
         // recognizes this workflow as up to date instead of restoring the
         // pristine example over the user's AI edits.
         recipe: { ...draft.recipe, version: 1, capability: edit.capability, actions: edit.actions },
-      };
-      const validationError = workflowDraftError(candidate);
+      });
+      let edit = await author(workflowAiEditPrompt(draft, workflowAiRequest));
+      let candidate = toCandidate(edit);
+      let validationError = workflowDraftError(candidate);
+      if (validationError?.includes("needs a safe read-only page data script")) {
+        // Keep the existing safety validation. Give the author one chance to
+        // repair an invalid script instead of leaving the user with a dead end.
+        edit = await author(workflowAiEditRepairPrompt(draft, workflowAiRequest, edit, validationError));
+        candidate = toCandidate(edit);
+        validationError = workflowDraftError(candidate);
+      }
       if (validationError) throw new Error(`AI change was not applied: ${validationError}`);
       const changedIndex = candidate.actions.findIndex((action, index) => JSON.stringify(action) !== JSON.stringify(draft.actions[index]));
       setDraft(candidate);

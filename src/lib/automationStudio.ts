@@ -48,7 +48,14 @@ export function capturedRunFromManualRecording(id: string, recording: ManualBrow
   }, []);
   const stoppedAt = recording.stoppedAt || Date.now();
   let domain = "browser";
-  try { domain = new URL(recording.url || "").hostname || domain; } catch { /* keep generic title */ }
+  // The recorder can stop on the toolset's verification tab even when the
+  // captured task navigated to a real site. Name the run from its last
+  // replayable page navigation, not from that incidental final tab.
+  const lastPageURL = [...actions].reverse().find((action) =>
+    ["open", "navigate"].includes(action.tool) && typeof action.arguments.url === "string" &&
+    /^https?:\/\//i.test(action.arguments.url),
+  )?.arguments.url;
+  try { domain = new URL(String(lastPageURL || recording.url || "")).hostname || domain; } catch { /* keep generic title */ }
   const task = `Replay the recorded browser actions on ${domain}.`;
   const evidence = actions.map((action) => `Called clawbrowser.${action.tool}(${JSON.stringify(action.arguments)})\n{"ok":true}`).join("\n");
   return {
@@ -68,7 +75,9 @@ export function capturedRunFromManualRecording(id: string, recording: ManualBrow
       })),
     },
     evidence,
-    conversationTitle: recording.title || `Manual recording — ${domain}`,
+    conversationTitle: recording.title && !/^(?:clawbrowser|browser) verification$/i.test(recording.title.trim())
+      ? recording.title
+      : `Manual recording — ${domain}`,
     captureSource: "manual",
     ...(recording.error ? { captureError: recording.error } : {}),
   };
