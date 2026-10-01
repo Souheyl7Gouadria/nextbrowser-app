@@ -1,0 +1,42 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import type { ProxyTraffic } from "../types";
+import { UsageView } from "./UsageView";
+
+const state = vi.hoisted(() => ({
+  authed: true,
+  isRefreshing: false,
+  proxyWarning: undefined,
+  refreshProxyData: vi.fn(),
+  githubStar: undefined,
+  loadGitHubStar: vi.fn(),
+  proxy: undefined as ProxyTraffic | undefined,
+}));
+
+vi.mock("../store", () => ({ useStore: (select?: (value: typeof state) => unknown) => select ? select(state) : state }));
+vi.mock("../lib/analytics", () => ({ trackEvent: vi.fn() }));
+vi.mock("./TrafficChart", () => ({ TrafficChart: () => null }));
+
+describe("NodeMaven purchase handoff", () => {
+  it("offers the invitation after the full 1 GB trial is exhausted", () => {
+    state.proxy = {
+      provider: "nodemaven", limited: true, used_bytes: 1_000_000_000,
+      limit_bytes: 1_000_000_000, remaining_bytes: 0, state: "exhausted",
+      provider_account_email: "customer@example.com",
+      provider_access_url: "https://dashboard.nodemaven.com/accounts/password/reset/",
+      pricing_url: "https://dashboard.nodemaven.com/pricing",
+    } as ProxyTraffic;
+    const html = renderToStaticMarkup(<UsageView />);
+    expect(html).toContain("Buy traffic in NodeMaven");
+    expect(html).toContain("email you a link");
+    expect(html).not.toContain("Set up account access");
+  });
+
+  it("does not offer the purchase invitation while trial traffic remains", () => {
+    state.proxy = {
+      provider: "nodemaven", limited: true, used_bytes: 500_000_000,
+      limit_bytes: 1_000_000_000, remaining_bytes: 500_000_000, state: "ok",
+    } as ProxyTraffic;
+    expect(renderToStaticMarkup(<UsageView />)).not.toContain("Buy traffic in NodeMaven");
+  });
+});

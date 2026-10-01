@@ -40,6 +40,7 @@ const {
 const { applyLegacyRuntimeMigration, applyRuntimeRootMigration, clearRuntimeCredential, runtimeAPIBaseURL, accountAPIBaseURL } = require("./runtime-config.cjs");
 const { fetchGitHubStars, readLocalGitHubStars, writeLocalGitHubStars } = require("./github-stars.cjs");
 const { githubStarStatus, verifyGitHubStar } = require("./github-star-reward.cjs");
+const { sendNodeMavenInvite } = require("./proxy-traffic.cjs");
 const { ensureWorkspaceInstructions } = require("./workspace-instructions.cjs");
 const pty = require("node-pty");
 const {
@@ -1952,6 +1953,7 @@ async function invokeCommand(command, args = {}, sender) {
       await shell.openExternal(String(args.url || ""));
       return null;
     }
+    case "nodemaven_send_invite": return sendNodeMavenInvite();
     case "app_platform": return { platform: process.platform, arch: process.arch };
     case "app_focus": {
       focusMainWindow();

@@ -126,6 +126,8 @@ export function UsageView() {
   const [domainsPage, setDomainsPage] = useState(1);
   const [handoffLoading, setHandoffLoading] = useState(false);
   const [handoffNotice, setHandoffNotice] = useState<string>();
+  const [handoffInviteSent, setHandoffInviteSent] = useState(false);
+  const [handoffInviteUnavailable, setHandoffInviteUnavailable] = useState(false);
   const gateState = trafficGateState(s.proxy);
   // A GitHub sign-up lifts its limit with a star, which replaces the Discord ask.
   const githubStar = useStore((state) => state.githubStar);
@@ -134,6 +136,11 @@ export function UsageView() {
   useEffect(() => {
     if (githubStar === undefined) void loadGitHubStar().catch(() => undefined);
   }, [githubStar, loadGitHubStar]);
+  useEffect(() => {
+    setHandoffInviteSent(false);
+    setHandoffInviteUnavailable(false);
+    setHandoffNotice(undefined);
+  }, [s.proxy?.provider_account_email, s.authed]);
   const allowanceBytes = trafficAllowanceBytes(s.proxy);
   const allowanceRemainingBytes = trafficAllowanceRemainingBytes(s.proxy);
   const fraction = trafficAllowanceFraction(s.proxy);
@@ -225,6 +232,28 @@ export function UsageView() {
         : "NodeMaven pricing opened. After checkout, return here and refresh your usage.");
     } catch {
       setHandoffNotice("We couldn't open NodeMaven. Try again.");
+    } finally {
+      setHandoffLoading(false);
+    }
+  };
+  const buyNodeMavenTraffic = async () => {
+    if (!s.proxy || handoffLoading) return;
+    if (handoffInviteSent) {
+      await openNodeMaven("pricing");
+      return;
+    }
+    setHandoffLoading(true);
+    setHandoffNotice(undefined);
+    try {
+      const result = await invoke<{ email: string; expiresInDays: number }>("nodemaven_send_invite");
+      setHandoffInviteSent(true);
+      setHandoffInviteUnavailable(false);
+      setHandoffNotice(`NodeMaven sent a password setup link to ${result.email}. It expires in ${result.expiresInDays} days. After setting your password, sign in to NodeMaven to buy traffic.`);
+      trackEvent("nodemaven_invite_sent", { proxy_state: s.proxy.state });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send the NodeMaven email. Try again.";
+      setHandoffInviteUnavailable(message.includes("not enabled yet"));
+      setHandoffNotice(message.replace(/^Error invoking remote method 'nextbrowser:invoke': Error: /, ""));
     } finally {
       setHandoffLoading(false);
     }
@@ -345,25 +374,25 @@ export function UsageView() {
                     <strong>{proxyExhausted ? "Your free 1 GB has been used" : "Your NodeMaven account is ready"}</strong>
                     <p>
                       {proxyExhausted
-                        ? "Buy more traffic in NodeMaven to continue. Your existing proxy credentials stay the same."
+                        ? "Buy more traffic in NodeMaven to continue. We'll email you a link to set your password. Your proxy credentials stay the same."
                         : s.proxy.provider_access_method === "email_sent"
                           ? "Your free 1 GB is active. NodeMaven sent account access instructions to your email."
-                          : "Your free 1 GB is active. Set a password once so you can buy more traffic when you need it."}
+                          : "Your free 1 GB is active. When you need more, we'll email you a link to set up your NodeMaven account."}
                     </p>
                     {s.proxy.provider_account_email && <span>NodeMaven account: {s.proxy.provider_account_email}</span>}
                   </div>
                 </div>
                 <div className="nodemaven-handoff-actions">
-                  {s.proxy.provider_access_method === "password_reset" && isTrustedNodeMavenURL(s.proxy.provider_access_url) && (
+                  {handoffInviteUnavailable && isTrustedNodeMavenURL(s.proxy.provider_access_url) && (
                     <button className={proxyExhausted ? "btn-bordered" : "btn-bordered-prominent"} disabled={handoffLoading} type="button" onClick={() => void openNodeMaven("access")}>
                       <Icon name="person.crop.circle" size={13} />
                       Set up account access
                     </button>
                   )}
-                  {proxyExhausted && isTrustedNodeMavenURL(s.proxy.pricing_url) && (
-                    <button className="btn-bordered-prominent" disabled={handoffLoading} type="button" onClick={() => void openNodeMaven("pricing")}>
+                  {proxyExhausted && (
+                    <button className="btn-bordered-prominent" disabled={handoffLoading} type="button" onClick={() => void buyNodeMavenTraffic()}>
                       {handoffLoading ? <Spinner size={13} /> : <Icon name="arrow.up.right" size={13} />}
-                      Buy traffic in NodeMaven
+                      {handoffInviteSent ? "Open NodeMaven to buy traffic" : "Buy traffic in NodeMaven"}
                     </button>
                   )}
                   {proxyExhausted && (

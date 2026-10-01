@@ -65,4 +65,36 @@ async function loadBackendConfig({
   return { apiKey, baseURL: normalizeAPIBaseURL(configuredBaseURL) };
 }
 
-module.exports = { configPath, loadBackendConfig, normalizeAPIBaseURL };
+async function sendNodeMavenInvite(deps = {}) {
+  const { apiKey, baseURL } = await loadBackendConfig(deps);
+  const fetchImpl = deps.fetchImpl || fetch;
+  let response;
+  try {
+    response = await fetchImpl(`${baseURL}/v1/proxy/traffic/invite`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new Error("Could not reach NextBrowser to send the NodeMaven email. Try again.");
+  }
+  if (!response.ok) {
+    const errorBody = typeof response.json === "function" ? await response.json().catch(() => null) : null;
+    if (response.status === 429) throw new Error("An invitation was sent recently. Check your email or try again in 10 minutes.");
+    if (response.status === 503 && errorBody?.code === "invite_disabled") {
+      throw new Error("NodeMaven invitations are not enabled yet. Use Set up account access to set your password.");
+    }
+    if (response.status === 404 && errorBody?.code === "invite_unavailable") {
+      throw new Error("Your NodeMaven account could not be found. Contact support before purchasing traffic.");
+    }
+    if (response.status === 401) throw new Error("Sign in to NextBrowser, then try sending the NodeMaven email again.");
+    throw new Error("Could not send the NodeMaven email. Try again or contact support.");
+  }
+  const result = await response.json().catch(() => null);
+  if (result?.invite_sent !== true || typeof result.email !== "string" || !Number.isInteger(result.expires_in_days) || result.expires_in_days < 1) {
+    throw new Error("NodeMaven did not confirm the invitation. Try again or contact support.");
+  }
+  return { email: result.email, expiresInDays: result.expires_in_days };
+}
+
+module.exports = { configPath, loadBackendConfig, normalizeAPIBaseURL, sendNodeMavenInvite };

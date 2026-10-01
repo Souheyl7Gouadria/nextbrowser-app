@@ -55,6 +55,10 @@ describe("traffic gate state", () => {
     }))).toBe("open");
     expect(trafficGateState(proxy({ used_bytes: 0, limit_bytes: freeTrafficAllowanceBytes })))
       .toBe("open");
+    expect(trafficGateState(proxy({
+      provider: "nodemaven", used_bytes: 1_000_000_000, limit_bytes: 1_000_000_000,
+      remaining_bytes: 0, state: "exhausted",
+    }))).toBe("open");
   });
 
   it("reports unlimited and unknown allocations", () => {

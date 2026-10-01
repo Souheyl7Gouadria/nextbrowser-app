@@ -13,6 +13,7 @@ import type { ProxyTraffic } from "../types";
  * `limit_bytes` alone and needs no extra backend field.
  */
 export const freeTrafficAllowanceBytes = 1024 * 1024 * 1024;
+const nodeMavenTrialBytes = 1_000_000_000;
 
 export type TrafficGateState =
   /** No proxy allocation is known yet. */
@@ -30,6 +31,9 @@ export function trafficGateState(proxyTraffic?: ProxyTraffic | null): TrafficGat
   if (!proxyTraffic) return "unknown";
   if (!proxyTraffic.limited) return "unlimited";
   if (proxyTraffic.limit_bytes == null) return "unknown";
+  // NodeMaven allocates its reseller trial in decimal GB. Do not classify
+  // that full 1 GB allocation as the older small-allocation Discord gate.
+  if (proxyTraffic.provider === "nodemaven" && proxyTraffic.limit_bytes >= nodeMavenTrialBytes) return "open";
   if (proxyTraffic.limit_bytes >= freeTrafficAllowanceBytes) return "open";
 
   const remainingBytes =
