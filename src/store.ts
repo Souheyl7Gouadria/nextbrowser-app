@@ -1390,7 +1390,10 @@ function normalizeWatchedProfiles(raw: WatchedProfile[]): WatchedProfile[] {
   const seen = new Set<string>();
   const profiles: WatchedProfile[] = [];
   for (const item of raw) {
-    const handle = normalizeWatchHandle(String(item?.handle ?? ""));
+    // The panel checked the skill's own length limit when the handle was
+    // added; here only the shape is checked, or a subreddit longer than an X
+    // handle would vanish on the next start.
+    const handle = normalizeWatchHandle(String(item?.handle ?? ""), { maxLength: 64 });
     const skillId = String(item?.skillId ?? "").trim();
     if (!handle || !skillId) continue;
     const key = `${skillId}\n${handle.toLowerCase()}`;
@@ -6316,9 +6319,7 @@ export const useStore = create<State>((set, get) => {
         } else if (check.blocked) {
           setSlot({ notice: check.blocked });
         } else {
-          const previous = slot()!.state.account;
-          const handle = check.handle ?? previous?.handle;
-          const state: SocialState = { ...slot()!.state, account: { ...(handle ? { handle } : {}), signedIn: check.signedIn, checkedAt: now() } };
+          const state = social.withAccount(slot()!.state, check, now());
           void saveJson(social.files.state, state);
           setSlot({ state });
         }

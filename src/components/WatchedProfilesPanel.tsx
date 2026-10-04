@@ -121,7 +121,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const monitoring = !!monitor && mode === "monitor";
   const redditMonitorAccount = useStore((s) => s.redditMonitorState.account);
   const social = socialEngine(monitor?.engine);
-  const socialAccount = useStore((s) => (social ? s.socialMonitors[social.engine]?.state.account : undefined));
+  const socialState = useStore((s) => (social ? s.socialMonitors[social.engine]?.state : undefined));
+  const socialAccount = social && socialState ? social.account(socialState) : undefined;
 
   useEffect(() => {
     if (!engine) void loadWatchReports(entry);

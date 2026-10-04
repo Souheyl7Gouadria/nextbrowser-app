@@ -1,0 +1,26 @@
+[
+  {
+    "task": "Check my Facebook groups for posts asking for a browser like ours, but do not post.",
+    "expects": [
+      "works in the browser profile signed in to Facebook and reads only groups the account is a member of",
+      "lists each matching post with its group and link",
+      "posts nothing in this run"
+    ]
+  },
+  {
+    "task": "Draft a reply to this group post: https://www.facebook.com/groups/1234567890/posts/9876543210/",
+    "expects": [
+      "opens the post in the browser profile and reads the whole post and its comments before writing",
+      "shows one draft that answers that post within the group's rules and waits for approval",
+      "posts only after the user approves and reports whether the comment appeared"
+    ]
+  },
+  {
+    "task": "Monitor the Facebook groups I'm in for mentions of our brand.",
+    "expects": [
+      "points the user to the Facebook skill's Monitoring mode, its groups list and keywords, instead of polling Facebook from chat",
+      "does not post, react or join groups while looking",
+      "stops and tells the user when Facebook asks for a security check or says the account is blocked"
+    ]
+  }
+]

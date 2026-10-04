@@ -409,15 +409,18 @@ export interface WatchHandleOptions {
 }
 
 /// normalizeWatchHandle accepts what a user actually pastes — `@handle`, a
-/// profile URL, `r/community`, or the bare name — and returns the bare handle,
-/// or an empty string when the value cannot be one.
+/// profile URL, `r/community`, a Facebook group link, or the bare name — and
+/// returns the bare handle, or an empty string when the value cannot be one.
+/// Periods are allowed inside a name, never at its ends or twice in a row:
+/// Instagram and TikTok handles and Facebook group names carry them.
 export function normalizeWatchHandle(value: string, options: WatchHandleOptions = {}): string {
   const maxLength = options.maxLength && options.maxLength > 0 ? Math.floor(options.maxLength) : DEFAULT_WATCH_HANDLE_MAX_LENGTH;
   let handle = value.trim();
-  const url = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*[a-z0-9-]+\.[a-z]{2,}\/(?:(?:r|u|user)\/)?(@?[A-Za-z0-9_]+)/i.exec(handle);
+  const url = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*[a-z0-9-]+\.[a-z]{2,}\/(?:(?:r|u|user|groups)\/)?(@?[A-Za-z0-9_.]+)/i.exec(handle);
   if (url) handle = url[1];
-  handle = handle.replace(/^\/?(?:r|u|user)\//i, "").replace(/^@+/, "").split(/[/?#]/)[0].trim();
-  return new RegExp(`^[A-Za-z0-9_]{1,${maxLength}}$`).test(handle) ? handle : "";
+  handle = handle.replace(/^\/?(?:r|u|user|groups)\//i, "").replace(/^@+/, "").split(/[/?#]/)[0].trim().replace(/\.+$/, "");
+  if (handle.startsWith(".") || handle.includes("..")) return "";
+  return new RegExp(`^[A-Za-z0-9_.]{1,${maxLength}}$`).test(handle) ? handle : "";
 }
 
 export function sameWatchHandle(left: string, right: string): boolean {

@@ -73,6 +73,17 @@ describe("watched profile handles", () => {
     expect(normalizeWatchHandle("learnprogramming")).toBe("");
     expect(normalizeWatchHandle("twenty_two_characters_x", subreddit)).toBe("");
   });
+
+  it("keeps the periods Instagram and TikTok handles carry, and reads a Facebook group link", () => {
+    const social = { maxLength: 30 };
+    expect(normalizeWatchHandle("@acme.shop", social)).toBe("acme.shop");
+    expect(normalizeWatchHandle("https://www.instagram.com/acme.shop/", social)).toBe("acme.shop");
+    expect(normalizeWatchHandle("https://www.tiktok.com/@acme.shop?lang=en", social)).toBe("acme.shop");
+    expect(normalizeWatchHandle("https://www.facebook.com/groups/1234567890123456/", social)).toBe("1234567890123456");
+    expect(normalizeWatchHandle("acme.shop.", social)).toBe("acme.shop");
+    expect(normalizeWatchHandle("acme..shop", social)).toBe("");
+    expect(normalizeWatchHandle(".acme", social)).toBe("");
+  });
 });
 
 describe("watchlist intervals", () => {

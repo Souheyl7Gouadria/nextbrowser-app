@@ -8,7 +8,9 @@
 //
 // The X and Reddit monitors came first and keep their own code paths.
 
+import * as facebook from "@nextbrowser-oss/facebook-monitoring";
 import * as instagram from "@nextbrowser-oss/instagram-monitoring";
+import * as tiktok from "@nextbrowser-oss/tiktok-monitoring";
 import type { SocialEvent, SocialMatch } from "./feed";
 
 export type SocialEngineId = "instagram-monitor" | "tiktok-monitor" | "facebook-monitor";
@@ -19,12 +21,19 @@ export interface SocialAccount {
   checkedAt: number;
 }
 
-/** The state fields the app reads; each engine's document has more. */
+/** The state fields the app reads; each engine's document has more, and
+ *  keeps its account in its own shape (spec.account reads it). */
 export interface SocialState {
   version: number;
   settings: object;
-  account?: SocialAccount;
   lastPass?: { at: number; finishedAt?: number; notes: string[] };
+}
+
+export interface SocialAccountCheck {
+  signedIn: boolean;
+  handle?: string;
+  securityCheck?: boolean;
+  blocked?: string;
 }
 
 export interface SocialSummary {
@@ -88,12 +97,11 @@ export interface SocialEngineSpec {
     onStep?: (step: string) => void;
     shouldStop?: () => boolean;
   }): Promise<{ state: SocialState; events: SocialEvent[]; summary: SocialSummary; matches: SocialMatch[] }>;
-  checkAccount(deps: { browser: SocialBrowser; log?: (entry: SocialLogEntry) => void }): Promise<{
-    signedIn: boolean;
-    handle?: string;
-    securityCheck?: boolean;
-    blocked?: string;
-  }>;
+  checkAccount(deps: { browser: SocialBrowser; log?: (entry: SocialLogEntry) => void }): Promise<SocialAccountCheck>;
+  /** The account the state last saw, as the panel shows it. */
+  account(state: SocialState): SocialAccount | undefined;
+  /** The state with the account a check just read. */
+  withAccount(state: SocialState, check: SocialAccountCheck, at: number): SocialState;
   /** The line under "What to watch". */
   intro: string;
   lists: TermListSpec[];
@@ -110,8 +118,8 @@ export interface SocialEngineSpec {
   where(match: SocialMatch): string;
   /** One line of context: the post or the group a match belongs to. */
   context(match: SocialMatch): string | undefined;
-  /** A link to an author. */
-  authorUrl(author: string): string;
+  /** A link to a match's author, when there is one. */
+  authorUrl(match: SocialMatch): string | undefined;
   /** What the reply agent is asked to do with one match. */
   replyTask(match: SocialMatch, profileName?: string): string;
 }
@@ -158,6 +166,12 @@ const instagramSpec: SocialEngineSpec = {
     };
   },
   checkAccount: (deps) => instagram.checkAccount(deps),
+  account: (state) => (state as instagram.MonitorState).account,
+  withAccount: (state, check, at) => {
+    const previous = (state as instagram.MonitorState).account;
+    const handle = check.handle ?? previous?.handle;
+    return { ...state, account: { ...previous, ...(handle ? { handle } : {}), signedIn: check.signedIn, checkedAt: at } } as SocialState;
+  },
   intro: "Mentions, tags and comments on your posts always count. Keywords are found as whole words, hashtags included, in watched profiles' comments.",
   lists: [
     {
@@ -180,7 +194,7 @@ const instagramSpec: SocialEngineSpec = {
   startHint: "Turn on a source or add a profile to watch first",
   signedOutNote: "Instagram shows nothing signed out — open it and sign in",
   followers: (state) => {
-    const handle = state.account?.handle?.toLowerCase();
+    const handle = (state as instagram.MonitorState).account?.handle?.toLowerCase();
     const stats = handle ? (state as instagram.MonitorState).followers[handle] : undefined;
     return stats ? { value: stats.followers, history: stats.history } : undefined;
   },
@@ -199,7 +213,7 @@ const instagramSpec: SocialEngineSpec = {
     const owner = post.owner ? `@${post.owner}'s post` : "a post";
     return post.caption ? `on ${owner}: “${quote(post.caption)}”` : `on ${owner}`;
   },
-  authorUrl: (author) => `https://www.instagram.com/${author}/`,
+  authorUrl: (match) => (match.item.author ? `https://www.instagram.com/${match.item.author}/` : undefined),
   replyTask: (match, profileName) => {
     const { item } = match;
     const profile = profileName ? `the browser profile "${profileName}"` : "the skill's browser profile";
@@ -217,8 +231,200 @@ const instagramSpec: SocialEngineSpec = {
   },
 };
 
+
+interface TikTokVideo {
+  author?: string;
+  desc?: string;
+}
+
+const tiktokSpec: SocialEngineSpec = {
+  engine: "tiktok-monitor",
+  name: "TikTok",
+  site: "tiktok.com",
+  handlePrefix: "@",
+  files: { state: "tiktok-monitor-state.json", feed: "tiktok-monitor-feed.json", log: "tiktok-monitor-log.jsonl" },
+  normalizeState: (raw) => tiktok.normalizeState(raw) as SocialState,
+  withSettings: (state, patch) => tiktok.withSettings(state as tiktok.MonitorState, patch as tiktok.SettingsPatch) as SocialState,
+  runPass: async (deps) => {
+    const result = await tiktok.runPass({ ...deps, state: deps.state as tiktok.MonitorState });
+    return {
+      state: result.state as SocialState,
+      events: result.events as unknown as SocialEvent[],
+      summary: result.summary,
+      matches: result.matches as unknown as SocialMatch[],
+    };
+  },
+  checkAccount: (deps) => tiktok.checkAccount(deps),
+  account: (state) => (state as tiktok.MonitorState).account,
+  withAccount: (state, check, at) => {
+    const previous = (state as tiktok.MonitorState).account;
+    const handle = check.handle ?? previous?.handle;
+    return { ...state, account: { ...previous, ...(handle ? { handle } : {}), signedIn: check.signedIn, checkedAt: at } } as SocialState;
+  },
+  intro: "Creators' new videos always count. Comments under them count when they name a keyword or you; comments on your own videos always count.",
+  lists: [
+    {
+      key: "creators",
+      label: "Creators to watch",
+      placeholder: "creator, without @",
+      prefix: "@",
+      parse: (text) => text.split(/[\s,]+/).map(tiktok.normalizeHandle).filter(Boolean),
+    },
+    { key: "keywords", label: "Keywords", placeholder: "brand, product or #hashtag", parse: tiktok.splitKeywords },
+    { key: "excludeKeywords", label: "Skip", placeholder: "words that rule a match out", parse: tiktok.splitKeywords },
+  ],
+  toggles: [
+    { key: "watchOwnVideos", label: "Comments on your videos", title: "Needs the profile signed in to TikTok" },
+    { key: "watchComments", label: "Keyword comments on creators' videos" },
+    { key: "trackEngagement", label: "Engagement jumps" },
+  ],
+  canStart: (settings) => list(settings.creators).length > 0 || settings.watchOwnVideos === true,
+  startHint: "Add a creator to watch first",
+  signedOutNote: "public creators are still read; comments on your videos wait for a sign-in",
+  followers: (state) => {
+    const handle = (state as tiktok.MonitorState).account?.handle?.toLowerCase();
+    const stats = handle ? (state as tiktok.MonitorState).followers[handle] : undefined;
+    return stats ? { value: stats.followers, history: stats.history } : undefined;
+  },
+  where: (match) => {
+    switch (match.source.kind) {
+      case "own_comments": return "Your video";
+      case "creator_comments": return `${match.source.name}'s video`;
+      default: return match.source.name;
+    }
+  },
+  context: (match) => {
+    const video = match.item.video as TikTokVideo | undefined;
+    if (!video || match.item.kind !== "comment") return undefined;
+    const owner = video.author ? `@${video.author}'s video` : "a video";
+    return video.desc ? `on ${owner}: “${quote(video.desc)}”` : `on ${owner}`;
+  },
+  authorUrl: (match) => (match.item.author ? `https://www.tiktok.com/@${match.item.author}` : undefined),
+  replyTask: (match, profileName) => {
+    const { item } = match;
+    const profile = profileName ? `the browser profile "${profileName}"` : "the skill's browser profile";
+    const why = match.triage.reasons.length ? ` It was ranked ${match.triage.urgency} because: ${match.triage.reasons.join("; ")}.` : "";
+    const target = item.kind === "comment"
+      ? `this TikTok comment by @${item.author}: "${quote(item.text, 200)}". TikTok has no link to a single comment, so find it under the video: ${item.url}`
+      : `this TikTok video by @${item.author}: ${item.url}`;
+    const how = item.kind === "comment"
+      ? "Once I approve it, post it with that comment's own Reply button so it lands in its thread"
+      : "Once I approve it, post it as a comment on the video";
+    return [
+      `Draft a reply to ${target}.${why}`,
+      `Work in ClawBrowser on ${profile}, which is signed in to TikTok. Open the video with \`nbc open --profile <profile> ${item.url}\` and read the ${item.kind === "comment" ? "comment and the thread around it" : "video's description and its top comments"}.`,
+      APPROVAL,
+      `${how}, follow the TikTok skill's posting steps, and report whether the reply appeared on the page. If TikTok shows a captcha, stop and tell me.`,
+    ].join("\n\n");
+  },
+};
+
+interface FacebookGroup {
+  name?: string;
+}
+
+interface FacebookPost {
+  author?: string;
+  text?: string;
+}
+
+const facebookSpec: SocialEngineSpec = {
+  engine: "facebook-monitor",
+  name: "Facebook",
+  site: "facebook.com",
+  handlePrefix: "",
+  files: { state: "facebook-monitor-state.json", feed: "facebook-monitor-feed.json", log: "facebook-monitor-log.jsonl" },
+  normalizeState: (raw) => facebook.normalizeState(raw) as SocialState,
+  withSettings: (state, patch) => facebook.withSettings(state as facebook.MonitorState, patch as Partial<facebook.MonitorSettings>) as SocialState,
+  runPass: async (deps) => {
+    const result = await facebook.runPass({ ...deps, state: deps.state as facebook.MonitorState });
+    const { summary } = result;
+    return {
+      state: result.state as SocialState,
+      events: result.events as unknown as SocialEvent[],
+      summary: {
+        signedIn: summary.signedIn,
+        ...(summary.account ? { handle: summary.account } : {}),
+        sourcesRead: summary.groupsRead,
+        newItems: summary.newItems,
+        urgent: summary.urgent,
+        loginRequired: summary.loginRequired,
+        securityCheck: summary.securityCheck,
+        rateLimited: summary.rateLimited,
+        ...(summary.blocked ? { blocked: summary.blocked } : {}),
+      },
+      matches: result.matches as unknown as SocialMatch[],
+    };
+  },
+  checkAccount: async (deps) => {
+    const check = await facebook.checkAccount(deps);
+    return {
+      signedIn: check.signedIn,
+      ...(check.name ? { handle: check.name } : {}),
+      ...(check.securityCheck ? { securityCheck: true } : {}),
+      ...(check.blocked ? { blocked: check.blocked } : {}),
+    };
+  },
+  account: (state) => {
+    const account = (state as facebook.MonitorState).account;
+    return account ? { ...(account.name ? { handle: account.name } : {}), signedIn: account.signedIn, checkedAt: account.checkedAt } : undefined;
+  },
+  withAccount: (state, check, at) => {
+    const previous = (state as facebook.MonitorState).account;
+    const name = check.handle ?? previous?.name;
+    return { ...state, account: { ...previous, ...(name ? { name } : {}), signedIn: check.signedIn, checkedAt: at } } as SocialState;
+  },
+  intro: "Posts and comments in your groups count when they name a keyword or you. Turn on Every post to see everything the groups post.",
+  lists: [
+    {
+      key: "groups",
+      label: "Groups to watch",
+      placeholder: "group link or id",
+      parse: (text) => text.split(/[\s,]+/).map(facebook.normalizeGroup).filter(Boolean),
+    },
+    { key: "keywords", label: "Keywords", placeholder: "brand, product or phrase", parse: facebook.splitKeywords },
+    { key: "excludeKeywords", label: "Skip", placeholder: "words that rule a match out", parse: facebook.splitKeywords },
+  ],
+  toggles: [
+    { key: "reportAllPosts", label: "Every post", title: "Report every new post, not only the ones that name a keyword or you" },
+    { key: "watchComments", label: "Comments under posts" },
+  ],
+  canStart: (settings) => list(settings.groups).length > 0,
+  startHint: "Add a group first — only groups this account is a member of can be read",
+  signedOutNote: "group posts are only shown to members, so sign in",
+  followers: () => undefined,
+  where: (match) => {
+    const group = match.item.group as FacebookGroup | undefined;
+    return group?.name || match.source.name;
+  },
+  context: (match) => {
+    const post = match.item.post as FacebookPost | undefined;
+    if (!post || match.item.kind !== "comment") return undefined;
+    const owner = post.author ? `${post.author}'s post` : "a post";
+    return post.text ? `on ${owner}: “${quote(post.text)}”` : `on ${owner}`;
+  },
+  authorUrl: (match) => (typeof match.item.authorUrl === "string" ? match.item.authorUrl : undefined),
+  replyTask: (match, profileName) => {
+    const { item } = match;
+    const profile = profileName ? `the browser profile "${profileName}"` : "the skill's browser profile";
+    const group = (item.group as FacebookGroup | undefined)?.name;
+    const why = match.triage.reasons.length ? ` It was ranked ${match.triage.urgency} because: ${match.triage.reasons.join("; ")}.` : "";
+    const how = item.kind === "comment"
+      ? "Once I approve it, post it with that comment's own Reply link so it lands in its thread"
+      : "Once I approve it, post it as a comment on the post";
+    return [
+      `Draft a reply to this Facebook ${item.kind === "comment" ? "comment" : "post"}${group ? ` in the group "${group}"` : ""}, by ${item.author}: ${item.url}.${why}`,
+      `Work in ClawBrowser on ${profile}, which is signed in to Facebook and a member of the group. Open the link with \`nbc open --profile <profile> ${item.url}\` and read the ${item.kind === "comment" ? "comment, the post and the thread" : "whole post (press See more if it is cut) and its comments"}. Keep to the group's rules.`,
+      APPROVAL,
+      `${how}, follow the Facebook skill's posting steps, and report whether the reply appeared on the page. If Facebook asks for a security check or says the account is temporarily blocked, stop and tell me.`,
+    ].join("\n\n");
+  },
+};
+
 const SPECS: Partial<Record<SocialEngineId, SocialEngineSpec>> = {
   "instagram-monitor": instagramSpec,
+  "tiktok-monitor": tiktokSpec,
+  "facebook-monitor": facebookSpec,
 };
 
 /** socialEngine returns the spec for an engine the app runs, or undefined for

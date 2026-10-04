@@ -1,0 +1,26 @@
+[
+  {
+    "task": "Find comments on my newest TikTok videos that still need an answer, but do not post anything.",
+    "expects": [
+      "works in the browser profile signed in to TikTok and checks the sign-in first",
+      "lists the unanswered comments with the video each one is under",
+      "posts nothing in this run"
+    ]
+  },
+  {
+    "task": "Draft a reply to the comment by @tom_k asking about shipping under https://www.tiktok.com/@acme_shop/video/7412345678901234567",
+    "expects": [
+      "opens the video in the browser profile and finds that comment by its author and text, since TikTok has no link to a single comment",
+      "shows one draft that answers that comment and waits for approval",
+      "posts only after the user approves, with the comment's Reply button, and reports whether the reply appeared"
+    ]
+  },
+  {
+    "task": "Keep an eye on what my competitors post on TikTok.",
+    "expects": [
+      "points the user to the TikTok skill's Monitoring mode and its creators list instead of polling TikTok from chat",
+      "does not like, follow or comment while looking",
+      "stops and tells the user when TikTok shows a captcha"
+    ]
+  }
+]

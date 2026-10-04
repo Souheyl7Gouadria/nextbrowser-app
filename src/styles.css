@@ -3342,6 +3342,19 @@ body.is-resizing-sidebar {
   color: var(--text);
 }
 .watchlist-input input:focus { outline: none; }
+/* .modal-card input, further down, boxes every field in a modal; inside the
+   watchlist's own frame the field must stay bare. */
+.watchlist-modal .watchlist-input input,
+.watchlist-modal .watchlist-input input:focus {
+  width: auto;
+  margin: 0;
+  padding: 7px 9px 7px 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  outline: none;
+}
 .watchlist-prefix { color: var(--muted); }
 .watchlist-error { margin: -4px 0 0; }
 .watchlist-rows { display: flex; flex-direction: column; gap: 6px; flex: none; }

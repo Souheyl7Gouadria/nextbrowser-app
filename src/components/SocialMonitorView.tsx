@@ -96,7 +96,7 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
   const profileAvailable = browserProfiles.some((item) => item.name === profile);
   const site = spec.site;
 
-  const account = state.account;
+  const account = spec.account(state);
   const handle = account?.handle;
   const signedIn = account?.signedIn === true;
   const followers = spec.followers(state);
@@ -327,17 +327,20 @@ function MatchRow({ spec, match, fresh, done, replyReady, onReply, onDone }: {
 }) {
   const { item, triage } = match;
   const context = spec.context(match);
+  const authorUrl = spec.authorUrl(match);
   return (
     <div className={"xmon-post rmon-match" + (fresh ? " is-new" : "") + (done ? " is-done" : "") + ` is-${triage.urgency}`}>
       <div className="xmon-post-body">
         <div className="xmon-post-head small">
           <span className={"watchlist-chip rmon-urgency " + triage.urgency}>{URGENCY_LABEL[triage.urgency]}</span>
           <span className="muted">{spec.where(match)}</span>
-          {item.author && (
-            <button className="watchlist-handle" title={`Open ${item.author}`} onClick={() => openUrl(spec.authorUrl(item.author))}>
-              {spec.handlePrefix}{item.author}
-            </button>
-          )}
+          {item.author && (authorUrl
+            ? (
+              <button className="watchlist-handle" title={`Open ${item.author}`} onClick={() => openUrl(authorUrl)}>
+                {spec.handlePrefix}{item.author}
+              </button>
+            )
+            : <strong className="small">{spec.handlePrefix}{item.author}</strong>)}
           {fresh && <span className="watchlist-chip ok">New</span>}
           <span className="spacer" />
           <span className="muted">{since(item.createdAt)}</span>
