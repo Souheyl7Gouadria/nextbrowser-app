@@ -72,6 +72,15 @@ import {
   withPass as withRedditPass,
   type RedditMonitorFeed,
 } from "./lib/redditmonitor/feed";
+import { isSocialEngine, socialEngine, socialEngines, type SocialEngineSpec, type SocialLogEntry, type SocialState } from "./lib/socialmonitor/engines";
+import {
+  emptySocialFeed,
+  normalizeSocialFeed,
+  withDone as withSocialDone,
+  withPass as withSocialPass,
+  type SocialFeed,
+  type SocialMatch,
+} from "./lib/socialmonitor/feed";
 import { activityFromText, extractToolEvents } from "./lib/activityParser";
 import { composePrompt } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
@@ -639,6 +648,10 @@ interface State {
   redditMonitorStep?: string;
   /** What the last Open reddit.com found wrong, until the next try. */
   redditMonitorNotice?: string;
+  /** The social monitoring engines run the same way (Instagram, TikTok,
+   *  Facebook): one slot each, keyed by engine, with its own state, feed and
+   *  tab lock. */
+  socialMonitors: Record<string, SocialMonitorSlot>;
   appActive: boolean;
   connectAnnounced: Set<string>;
   workingDir: string;
@@ -817,6 +830,12 @@ interface State {
   /** Hands one match to the Reddit reply agent: a draft first, a post only
    *  after the user approves it. */
   draftRedditReply: (entry: SkillEntry, match: RedditMatch, profileName?: string) => Promise<void>;
+  runSocialMonitorPass: (entry: SkillEntry, options?: { profileName?: string }) => Promise<void>;
+  updateSocialMonitorSettings: (engine: string, patch: Record<string, unknown>) => void;
+  setSocialMatchDone: (engine: string, key: string, done: boolean) => void;
+  /** Hands one match to the skill's reply agent: a draft first, a post only
+   *  after the user approves it. */
+  draftSocialReply: (entry: SkillEntry, match: SocialMatch, profileName?: string) => Promise<void>;
   stopWatchlistRun: (skillId: string) => void;
   tickWatchlistRuns: () => Promise<void>;
   startRemoteStream: (target?: LiveStreamTarget) => Promise<RemoteStreamInfo>;
@@ -1067,6 +1086,7 @@ async function clearAccountEntityCache(): Promise<void> {
     [X_MONITOR_FEED_FILE]: "null",
     [REDDIT_MONITOR_STATE_FILE]: "null",
     [REDDIT_MONITOR_FEED_FILE]: "null",
+    ...Object.fromEntries(socialEngines().flatMap((spec) => [[spec.files.state, "null"], [spec.files.feed, "null"]])),
   };
   await Promise.all(Object.entries(emptyFiles).map(([name, content]) =>
     invoke("app_data_write", { name, content }),
@@ -1122,6 +1142,7 @@ function emptyAccountOwnedCaches(): Partial<State> {
     xMonitorFeed: emptyXMonitorFeed(),
     redditMonitorState: normalizeRedditMonitorState(null),
     redditMonitorFeed: emptyRedditMonitorFeed(),
+    socialMonitors: emptySocialMonitors(),
   };
 }
 
@@ -1469,6 +1490,32 @@ let xMonitorPassActive = false;
 /// Set while a Reddit monitoring pass should wind down, and while one runs.
 let redditMonitorStopRequested = false;
 let redditMonitorPassActive = false;
+
+export interface SocialMonitorSlot {
+  state: SocialState;
+  feed: SocialFeed;
+  busy: boolean;
+  step?: string;
+  /** What the last Open <site> found wrong, until the next try. */
+  notice?: string;
+}
+
+function emptySocialMonitors(): Record<string, SocialMonitorSlot> {
+  return Object.fromEntries(socialEngines().map((spec) => [spec.engine, { state: spec.normalizeState(null), feed: emptySocialFeed(), busy: false }]));
+}
+
+/// Per engine: set while a pass should wind down, and while one runs.
+const socialStop: Record<string, { requested: boolean; active: boolean }> = {};
+const socialLogQueues: Record<string, Promise<void>> = {};
+
+/** socialMonitorLog appends to an engine's own log, rotated like the others. */
+function socialMonitorLog(spec: SocialEngineSpec) {
+  return (entry: SocialLogEntry) => {
+    socialLogQueues[spec.engine] = (socialLogQueues[spec.engine] ?? Promise.resolve())
+      .then(() => appendAppData(spec.files.log, `${JSON.stringify(entry)}\n`))
+      .catch(() => undefined);
+  };
+}
 /// The draft the engine is waiting on right now, so Stop can end the CLI
 /// process instead of waiting for it to finish on its own.
 let xReplyDraftReplyId: string | undefined;
@@ -2014,6 +2061,7 @@ export const useStore = create<State>((set, get) => {
   redditMonitorState: normalizeRedditMonitorState(null),
   redditMonitorFeed: emptyRedditMonitorFeed(),
   redditMonitorBusy: false,
+  socialMonitors: emptySocialMonitors(),
   scheduledRuns: [],
   customScripts: [],
   localSkills: [],
@@ -2180,6 +2228,12 @@ export const useStore = create<State>((set, get) => {
         redditMonitorFeed: normalizeRedditMonitorFeed(rawRedditMonitorFeed),
         workingDir: wd,
       });
+      const socialMonitors = Object.fromEntries(await Promise.all(socialEngines().map(async (spec) => {
+        const [rawState, rawFeed] = await Promise.all([loadJson<unknown>(spec.files.state, null), loadJson<unknown>(spec.files.feed, null)]);
+        const slot: SocialMonitorSlot = { state: spec.normalizeState(rawState), feed: normalizeSocialFeed(rawFeed), busy: false };
+        return [spec.engine, slot] as const;
+      })));
+      set({ socialMonitors });
       get().reconcileQueues();
       set({ startupPhase: "account" });
 
@@ -2428,16 +2482,18 @@ export const useStore = create<State>((set, get) => {
           .find((candidate) => candidate.id === run.skillId);
         // The engines keep separate tab locks, but one profile can serve both
         // X and Reddit, so a monitoring pass also waits out the other engine.
-        const busy = get().xReplyBusy || get().redditMonitorBusy;
+        const busy = get().xReplyBusy || get().redditMonitorBusy
+          || Object.values(get().socialMonitors).some((slot) => slot.busy);
         if (!entry?.watchlist?.monitor || busy) continue;
         const firedRuns = get().scheduledRuns.map((r) =>
           r.id === run.id ? { ...r, lastFiredAt: now(), lastError: undefined } : r,
         );
         set({ scheduledRuns: firedRuns });
         persistSchedules(firedRuns);
-        const kind = run.kind === "reddit-monitor" ? "reddit-monitor" : "x-monitor";
+        const kind = run.kind ?? "x-monitor";
         trackEvent("scheduled_run_fired", { agent: kind, has_conversation: false });
-        if (kind === "reddit-monitor") void get().runRedditMonitorPass(entry, { profileName: run.profileName });
+        if (isSocialEngine(kind)) void get().runSocialMonitorPass(entry, { profileName: run.profileName });
+        else if (kind === "reddit-monitor") void get().runRedditMonitorPass(entry, { profileName: run.profileName });
         else void get().runXMonitorPass(entry, { profileName: run.profileName });
         continue;
       }
@@ -3246,6 +3302,7 @@ export const useStore = create<State>((set, get) => {
         redditMonitorState: normalizeRedditMonitorState(null),
         redditMonitorFeed: emptyRedditMonitorFeed(),
         redditMonitorNotice: undefined,
+        socialMonitors: emptySocialMonitors(),
         projectRevisions: {},
         workspaceRevisions: {},
         workspaceSetupRequired: false,
@@ -6233,11 +6290,46 @@ export const useStore = create<State>((set, get) => {
       : [...get().scheduledRuns, run];
     persistSchedules(scheduledRuns);
     set({ scheduledRuns });
-    trackEvent(engine === "reddit-monitor" ? "reddit_monitor_schedule_started" : "x_monitor_schedule_started", { interval_minutes: intervalMinutes, created: !existing });
+    trackEvent(`${engine.replace(/-/g, "_")}_schedule_started`, { interval_minutes: intervalMinutes, created: !existing });
     await get().tickScheduledRuns();
   },
 
   openMonitorSite: async (entry, profileName) => {
+    const social = socialEngine(entry.watchlist?.monitor?.engine);
+    if (social) {
+      const engine = social.engine;
+      const slot = () => get().socialMonitors[engine];
+      const setSlot = (patch: Partial<SocialMonitorSlot>) =>
+        set((state) => ({ socialMonitors: { ...state.socialMonitors, [engine]: { ...state.socialMonitors[engine]!, ...patch } } }));
+      if (!slot() || slot()!.busy) return;
+      const profile = profileName ?? get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+      const log = socialMonitorLog(social);
+      setSlot({ busy: true, step: `Opening ${social.site}`, notice: undefined });
+      try {
+        const profileArgs = await prepareMonitorSession(profile, (step) => setSlot({ step }));
+        // Opening the site is also where the panel learns who is signed in,
+        // so the account shows before monitoring has ever run.
+        setSlot({ step: "Reading the signed-in account" });
+        const check = await social.checkAccount({ browser: cliBrowser(profileArgs), log });
+        if (check.securityCheck) {
+          setSlot({ notice: `${social.name} wants this account to pass a security check. Complete it in the window that opened.` });
+        } else if (check.blocked) {
+          setSlot({ notice: check.blocked });
+        } else {
+          const previous = slot()!.state.account;
+          const handle = check.handle ?? previous?.handle;
+          const state: SocialState = { ...slot()!.state, account: { ...(handle ? { handle } : {}), signedIn: check.signedIn, checkedAt: now() } };
+          void saveJson(social.files.state, state);
+          setSlot({ state });
+        }
+      } catch (error) {
+        log({ t: new Date().toISOString(), ev: "open.error", error: xReplyErrorText(error) });
+        setSlot({ notice: friendlyXReplyError(error) });
+      } finally {
+        setSlot({ busy: false, step: undefined });
+      }
+      return;
+    }
     if (entry.watchlist?.monitor?.engine === "reddit-monitor") {
       if (get().redditMonitorBusy) return;
       const profile = profileName ?? get().watchlistProfiles[entry.id] ?? get().selectedProfile;
@@ -6297,7 +6389,9 @@ export const useStore = create<State>((set, get) => {
     const run = get().monitorScheduleFor(skillId);
     if (!run) return;
     get().setScheduledRunEnabled(run.id, false);
-    if (run.kind === "reddit-monitor") {
+    if (isSocialEngine(run.kind)) {
+      if (socialStop[run.kind]?.active) socialStop[run.kind]!.requested = true;
+    } else if (run.kind === "reddit-monitor") {
       if (redditMonitorPassActive) redditMonitorStopRequested = true;
     } else if (xMonitorPassActive) {
       xReplyStopRequested = true;
@@ -6440,6 +6534,86 @@ export const useStore = create<State>((set, get) => {
     const browser = transports.find((transport) => !transport.runtime) ?? get().watchlistTransportFor(entry);
     trackEvent("reddit_monitor_reply_requested", { urgency: match.triage.urgency, kind: match.item.kind, source: match.source.kind });
     await get().useSkillInChat(transportEntry(entry, browser), redditReplyTask(match, profileName));
+  },
+
+  // One pass of a social monitoring engine on its own profile. It reads and
+  // never acts; answering a match is the reply agent's job, with approval.
+  runSocialMonitorPass: async (entry, options) => {
+    const social = socialEngine(entry.watchlist?.monitor?.engine);
+    if (!social) return;
+    const engine = social.engine;
+    const slot = () => get().socialMonitors[engine];
+    const setSlot = (patch: Partial<SocialMonitorSlot>) =>
+      set((state) => ({ socialMonitors: { ...state.socialMonitors, [engine]: { ...state.socialMonitors[engine]!, ...patch } } }));
+    if (!slot() || slot()!.busy) return;
+    const profileName = options?.profileName ?? get().watchlistProfiles[entry.id] ?? get().selectedProfile;
+    const log = socialMonitorLog(social);
+    const stop: { requested: boolean; active: boolean } = { requested: false, active: true };
+    socialStop[engine] = stop;
+    setSlot({ busy: true, step: "Preparing the browser session", notice: undefined });
+    log({ t: new Date().toISOString(), ev: "run.start", profile: profileName, app: __APP_VERSION__ });
+    try {
+      const profileArgs = await prepareMonitorSession(profileName, (step) => setSlot({ step }));
+      const result = await social.runPass({
+        browser: cliBrowser(profileArgs),
+        // The schedule already says how often to look; per-engine throttles it
+        // stands in for are lifted here.
+        state: social.passSettings ? social.withSettings(slot()!.state, social.passSettings) : slot()!.state,
+        log,
+        onStep: (step) => setSlot({ step }),
+        shouldStop: () => stop.requested,
+      });
+      const at = result.state.lastPass?.at ?? now();
+      const feed = withSocialPass(slot()!.feed, { matches: result.matches, events: result.events, read: result.summary.sourcesRead > 0 }, at);
+      // What the panel changed while the pass ran is the user's latest word.
+      const state: SocialState = { ...result.state, settings: slot()!.state.settings };
+      void saveJson(social.files.state, state);
+      void saveJson(social.files.feed, feed);
+      setSlot({ state, feed });
+      trackEvent(`${engine.replace(/-/g, "_")}_pass_finished`, {
+        new_items: result.summary.newItems,
+        urgent: result.summary.urgent,
+        signed_in: result.summary.signedIn,
+        blocked: !!result.summary.blocked,
+        security_check: !!result.summary.securityCheck,
+        rate_limited: !!result.summary.rateLimited,
+      });
+    } catch (error) {
+      log({ t: new Date().toISOString(), ev: "run.error", error: xReplyErrorText(error) });
+      const at = now();
+      const state: SocialState = { ...slot()!.state, lastPass: { at, finishedAt: at, notes: [friendlyXReplyError(error)] } };
+      void saveJson(social.files.state, state);
+      setSlot({ state });
+      trackEvent(`${engine.replace(/-/g, "_")}_pass_failed`, {});
+    } finally {
+      stop.active = false;
+      setSlot({ busy: false, step: undefined });
+    }
+  },
+
+  updateSocialMonitorSettings: (engine, patch) => {
+    const social = socialEngine(engine);
+    const slot = get().socialMonitors[engine];
+    if (!social || !slot) return;
+    const state = social.withSettings(slot.state, patch);
+    void saveJson(social.files.state, state);
+    set((current) => ({ socialMonitors: { ...current.socialMonitors, [engine]: { ...current.socialMonitors[engine]!, state } } }));
+  },
+
+  setSocialMatchDone: (engine, key, done) => {
+    const social = socialEngine(engine);
+    const slot = get().socialMonitors[engine];
+    if (!social || !slot) return;
+    const feed = withSocialDone(slot.feed, key, done);
+    void saveJson(social.files.feed, feed);
+    set((current) => ({ socialMonitors: { ...current.socialMonitors, [engine]: { ...current.socialMonitors[engine]!, feed } } }));
+  },
+
+  draftSocialReply: async (entry, match, profileName) => {
+    const social = socialEngine(entry.watchlist?.monitor?.engine);
+    if (!social || !entry.watchlist) return;
+    trackEvent(`${social.engine.replace(/-/g, "_")}_reply_requested`, { urgency: match.triage.urgency, kind: match.item.kind, source: match.source.kind });
+    await get().useSkillInChat(entry, social.replyTask(match, profileName));
   },
 
   // Adding an account subscribes it right away: the bell goes on and the

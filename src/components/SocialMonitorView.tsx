@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { normalizeCommunity, splitKeywords, type Match } from "@nextbrowser-oss/reddit-monitoring";
 import { useStore } from "../store";
 import { invoke } from "../electronBridge";
 import type { SkillEntry } from "../skillsCatalog";
-import { REDDIT_MONITOR_LOG_FILE, announcedToday, countTrend, isNew, openMatches } from "../lib/redditmonitor/feed";
+import { announcedToday, isNew, openMatches, type SocialMatch } from "../lib/socialmonitor/feed";
+import type { SocialEngineSpec } from "../lib/socialmonitor/engines";
+import { countTrend } from "../lib/redditmonitor/feed";
 import { DEFAULT_MONITOR_INTERVAL_MINUTES, formatInterval } from "../types";
 import { IntervalDial } from "./IntervalDial";
 import { Icon } from "./Icon";
+import { TermList, Toggle } from "./RedditMonitorView";
 import { Sparkline } from "./XMonitorView";
 
 const MINUTE = 60_000;
@@ -37,30 +39,27 @@ function openUrl(url: string) {
   void invoke("open_external", { url }).catch(() => window.open(url, "_blank", "noopener,noreferrer"));
 }
 
-const PROFILE_KEY = "redditMonitorProfile";
-
-function storedProfile(): string | undefined {
+function storedProfile(key: string): string | undefined {
   try {
-    return localStorage.getItem(PROFILE_KEY) || undefined;
+    return localStorage.getItem(key) || undefined;
   } catch {
     return undefined;
   }
 }
 
-/// The Reddit skill's monitoring mode. It finds what needs an answer — the
-/// account's mentions and replies, and posts and comments that name the user's
-/// keywords — and ranks it by urgency, with the reasons. It never answers:
-/// Draft reply hands one match to the reply agent, which shows the draft and
-/// posts only what the user approves. It runs as a schedule, so it also shows
-/// in the Scheduled list, and it keeps its own profile and its own state.
-export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
-  const monitor = useStore((s) => s.redditMonitorState);
-  const feed = useStore((s) => s.redditMonitorFeed);
-  const busy = useStore((s) => s.redditMonitorBusy);
-  const step = useStore((s) => s.redditMonitorStep);
-  const notice = useStore((s) => s.redditMonitorNotice);
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+/// The monitoring mode of a social skill — Instagram, TikTok, Facebook. Each
+/// engine finds what needs an answer and ranks it, with the reasons; the panel
+/// is the same for all of them, and the engine's spec says what differs: the
+/// settings to edit, how a match is described, what the reply agent is asked.
+/// It never answers: Draft reply hands one match to the reply agent, which
+/// shows the draft and posts only what the user approves.
+export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: SocialEngineSpec }) {
+  const slot = useStore((s) => s.socialMonitors[spec.engine]);
   const replyProfile = useStore((s) => s.watchlistProfiles[entry.id]);
-  const watchedCommunities = useStore((s) => s.watchedProfiles).filter((item) => item.skillId === entry.id).map((item) => item.handle);
   const allBrowserProfiles = useStore((s) => s.profiles);
   const workspaces = useStore((s) => s.workspaces);
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
@@ -71,10 +70,11 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
   const stopSchedule = useStore((s) => s.stopMonitorSchedule);
   const setInterval_ = useStore((s) => s.setMonitorScheduleInterval);
   const openSite = useStore((s) => s.openMonitorSite);
-  const updateSettings = useStore((s) => s.updateRedditMonitorSettings);
-  const setDone = useStore((s) => s.setRedditMatchDone);
-  const draftReply = useStore((s) => s.draftRedditReply);
-  const [chosenProfile, setChosenProfile] = useState<string | undefined>(() => storedProfile());
+  const updateSettings = useStore((s) => s.updateSocialMonitorSettings);
+  const setDone = useStore((s) => s.setSocialMatchDone);
+  const draftReply = useStore((s) => s.draftSocialReply);
+  const profileKey = `${spec.engine}:profile`;
+  const [chosenProfile, setChosenProfile] = useState<string | undefined>(() => storedProfile(profileKey));
   const [interval, setIntervalChoice] = useState<number>(schedule?.intervalMinutes ?? DEFAULT_MONITOR_INTERVAL_MINUTES);
   const [showDone, setShowDone] = useState(false);
   const [, setNowTick] = useState(0);
@@ -84,6 +84,9 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
     return () => window.clearInterval(timer);
   }, []);
 
+  if (!slot) return null;
+  const { state, feed, busy, step, notice } = slot;
+  const settings = state.settings as Record<string, unknown>;
   const running = schedule?.enabled === true;
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const browserProfiles = allBrowserProfiles.filter((profile) => workspace?.profileNames.includes(profile.name));
@@ -91,35 +94,33 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
   // here, and the reply agent's profile only as a first suggestion.
   const profile = schedule?.profileName ?? chosenProfile ?? replyProfile ?? selectedProfile;
   const profileAvailable = browserProfiles.some((item) => item.name === profile);
-  const site = entry.selector.value;
-  const settings = monitor.settings;
+  const site = spec.site;
 
-  const account = monitor.account;
+  const account = state.account;
   const handle = account?.handle;
   const signedIn = account?.signedIn === true;
-  const karma = monitor.karma && handle && monitor.karma.owner.toLowerCase() === handle.toLowerCase() ? monitor.karma : undefined;
-  const trend = countTrend(karma?.history ?? [], karma?.total, Date.now());
-  const lastPass = monitor.lastPass;
+  const followers = spec.followers(state);
+  const trend = countTrend(followers?.history ?? [], followers?.value, Date.now());
+  const lastPass = state.lastPass;
   const nextRunAt = running && schedule?.lastFiredAt && schedule.intervalMinutes
     ? schedule.lastFiredAt + schedule.intervalMinutes * MINUTE
     : undefined;
-  const somethingToWatch = settings.keywords.length > 0 || settings.communities.length > 0 || settings.watchInbox;
-  const missingCommunities = watchedCommunities.filter((name) => !settings.communities.some((known) => known.toLowerCase() === name.toLowerCase()));
+  const canStart = spec.canStart(settings);
 
   const matches = openMatches(feed);
   const doneMatches = feed.matches.filter((match) => feed.done.includes(match.item.key));
-  const hasStats = karma?.total !== undefined || !!feed.readAt;
+  const hasStats = followers?.value !== undefined || !!feed.readAt;
   const hasData = !!account || hasStats || feed.matches.length > 0;
   const notes = !busy ? [...(notice ? [notice] : []), ...(lastPass?.notes ?? [])] : [];
 
   const chooseProfile = (name: string) => {
     setChosenProfile(name || undefined);
-    try { localStorage.setItem(PROFILE_KEY, name); } catch { /* a view preference */ }
+    try { localStorage.setItem(profileKey, name); } catch { /* a view preference */ }
   };
 
   const logLink = (
     <button className="link small" title="Reveal the monitor's log file"
-      onClick={() => void invoke("app_data_reveal", { name: REDDIT_MONITOR_LOG_FILE })}>
+      onClick={() => void invoke("app_data_reveal", { name: spec.files.log })}>
       Show log
     </button>
   );
@@ -131,7 +132,7 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
         <select
           value={profileAvailable ? profile : "__choose_profile__"}
           disabled={busy || running}
-          title={running ? "Stop monitoring to change the profile" : "The browser profile signed in to reddit.com"}
+          title={running ? "Stop monitoring to change the profile" : `The browser profile signed in to ${site}`}
           onChange={(event) => chooseProfile(event.target.value)}
         >
           {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
@@ -148,7 +149,7 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
         </button>
       </div>
       {!profileAvailable && (
-        <p className="muted small" role="status">Choose a browser profile from this workspace to monitor Reddit with.</p>
+        <p className="muted small" role="status">Choose a browser profile from this workspace to monitor {spec.name} with.</p>
       )}
 
       {(running || hasData) && (
@@ -157,13 +158,13 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
             {handle ? handle.slice(0, 1).toUpperCase() : <Icon name="person.crop.circle" size={16} />}
           </span>
           <div className="xmon-account-text">
-            <strong>{handle ? `u/${handle}` : account ? "No Reddit account" : "Reading the account…"}</strong>
+            <strong>{handle ? `${spec.handlePrefix}${handle}` : account ? `No ${spec.name} account` : "Reading the account…"}</strong>
             <span className="muted small">
               <span className={"status-dot " + (signedIn ? "ok-dot" : "muted-dot")} />
               {signedIn
                 ? `Signed in${account?.checkedAt ? ` · checked ${since(account.checkedAt)}` : ""}`
                 : account
-                  ? `Not signed in to ${site} — mentions wait for a sign-in; communities and search still run`
+                  ? `Not signed in to ${site} — ${spec.signedOutNote}`
                   : "The first check is on its way"}
             </span>
           </div>
@@ -181,42 +182,27 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
       <div className="xmon-setup rmon-watch">
         <div className="xmon-setup-head">
           <strong className="small">What to watch</strong>
-          <span className="muted small">Mentions of the account always count. Keywords are found as whole words in posts, comments and search.</span>
+          <span className="muted small">{spec.intro}</span>
         </div>
-        <TermList
-          label="Keywords"
-          placeholder="brand, product or phrase"
-          values={settings.keywords}
-          parse={splitKeywords}
-          onChange={(keywords) => updateSettings({ keywords })}
-        />
-        <TermList
-          label="Communities"
-          prefix="r/"
-          placeholder="community without r/"
-          values={settings.communities}
-          parse={(text) => text.split(/[\s,]+/).map(normalizeCommunity).filter(Boolean)}
-          onChange={(communities) => updateSettings({ communities })}
-          extra={missingCommunities.length > 0 && (
-            <button className="link small" title="The communities the reply agent answers in"
-              onClick={() => updateSettings({ communities: [...settings.communities, ...missingCommunities] })}>
-              Add the reply agent's {missingCommunities.length === 1 ? `r/${missingCommunities[0]}` : `${missingCommunities.length} communities`}
-            </button>
-          )}
-        />
-        <TermList
-          label="Skip"
-          placeholder="words that rule a match out"
-          values={settings.excludeKeywords}
-          parse={splitKeywords}
-          onChange={(excludeKeywords) => updateSettings({ excludeKeywords })}
-        />
-        <div className="rmon-toggles">
-          <Toggle label="Inbox mentions and replies" value={settings.watchInbox} onChange={(watchInbox) => updateSettings({ watchInbox })} />
-          <Toggle label="Search all of Reddit" value={settings.searchAll} onChange={(searchAll) => updateSettings({ searchAll })}
-            title="Search covers posts; comments are matched in your communities" />
-          <Toggle label="Comments in communities" value={settings.watchComments} onChange={(watchComments) => updateSettings({ watchComments })} />
-        </div>
+        {spec.lists.map((list) => (
+          <TermList
+            key={list.key}
+            label={list.label}
+            prefix={list.prefix}
+            placeholder={list.placeholder}
+            values={strings(settings[list.key])}
+            parse={list.parse}
+            onChange={(values) => updateSettings(spec.engine, { [list.key]: values })}
+          />
+        ))}
+        {spec.toggles.length > 0 && (
+          <div className="rmon-toggles">
+            {spec.toggles.map((toggle) => (
+              <Toggle key={toggle.key} label={toggle.label} title={toggle.title} value={settings[toggle.key] === true}
+                onChange={(value) => updateSettings(spec.engine, { [toggle.key]: value })} />
+            ))}
+          </div>
+        )}
       </div>
 
       {!running && (
@@ -238,8 +224,8 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
             <span className="spacer" />
             <button
               className="btn-bordered-prominent"
-              disabled={!profileAvailable || busy || !somethingToWatch}
-              title={somethingToWatch ? "Read Reddit now and then on this interval" : "Add a keyword or a community first"}
+              disabled={!profileAvailable || busy || !canStart}
+              title={canStart ? `Read ${spec.name} now and then on this interval` : spec.startHint}
               onClick={() => void startSchedule(entry, { intervalMinutes: interval, profileName: profile })}
             >
               <Icon name="play.fill" size={13} /> Start
@@ -251,9 +237,9 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
       {hasStats && (
         <div className="xmon-stats">
           <div className="xmon-stat xmon-stat-main">
-            <span className="muted small">Karma</span>
+            <span className="muted small">Followers</span>
             <div className="xmon-stat-row">
-              <strong className="xmon-value">{count(karma?.total)}</strong>
+              <strong className="xmon-value">{count(followers?.value)}</strong>
               {trend.delta !== undefined && trend.delta !== 0 && (
                 <span className={"xmon-delta " + (trend.delta > 0 ? "up" : "down")}>
                   <Icon name={trend.delta > 0 ? "arrow.up.circle" : "arrow.down.circle"} size={11} />
@@ -261,7 +247,7 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
                 </span>
               )}
             </div>
-            <Sparkline points={trend.points} label="Karma over time" />
+            <Sparkline points={trend.points} label="Followers over time" />
           </div>
           <div className="xmon-stat">
             <span className="muted small">New matches · 24h</span>
@@ -291,12 +277,12 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
           <div className="xmon-posts">
             {matches.length === 0 && !showDone && <div className="muted small">All caught up.</div>}
             {matches.map((match) => (
-              <MatchRow key={match.item.key} match={match} fresh={isNew(feed, match.item.key)} replyReady={agentReady}
-                onReply={() => void draftReply(entry, match, profile)} onDone={() => setDone(match.item.key, true)} />
+              <MatchRow key={match.item.key} spec={spec} match={match} fresh={isNew(feed, match.item.key)} replyReady={agentReady}
+                onReply={() => void draftReply(entry, match, profile)} onDone={() => setDone(spec.engine, match.item.key, true)} />
             ))}
             {showDone && doneMatches.map((match) => (
-              <MatchRow key={match.item.key} match={match} fresh={false} done replyReady={agentReady}
-                onReply={() => void draftReply(entry, match, profile)} onDone={() => setDone(match.item.key, false)} />
+              <MatchRow key={match.item.key} spec={spec} match={match} fresh={false} done replyReady={agentReady}
+                onReply={() => void draftReply(entry, match, profile)} onDone={() => setDone(spec.engine, match.item.key, false)} />
             ))}
           </div>
           {!agentReady && <div className="muted small">Connect an agent to draft replies. It shows every draft before anything is posted.</div>}
@@ -328,99 +314,36 @@ export function RedditMonitorView({ entry }: { entry: SkillEntry }) {
   );
 }
 
-/// A short list edited in place: chips with a remove button, and a field that
-/// takes one entry or several separated by commas.
-export function TermList({ label, prefix, placeholder, values, parse, onChange, extra }: {
-  label: string;
-  prefix?: string;
-  placeholder: string;
-  values: string[];
-  parse: (text: string) => string[];
-  onChange: (values: string[]) => void;
-  extra?: React.ReactNode;
-}) {
-  const [draft, setDraft] = useState("");
-  const add = () => {
-    const added = parse(draft).filter((value) => !values.some((known) => known.toLowerCase() === value.toLowerCase()));
-    if (added.length) onChange([...values, ...added]);
-    setDraft("");
-  };
-  return (
-    <div className="rmon-terms">
-      <div className="row rmon-terms-head">
-        <span className="muted small">{label}</span>
-        <span className="spacer" />
-        {extra}
-      </div>
-      <div className="rmon-terms-box">
-        {values.map((value) => (
-          <span key={value} className="rmon-term">
-            {prefix}{value}
-            <button className="rmon-term-remove" title={`Remove ${prefix ?? ""}${value}`} aria-label={`Remove ${prefix ?? ""}${value}`}
-              onClick={() => onChange(values.filter((item) => item !== value))}>
-              <Icon name="xmark" size={9} />
-            </button>
-          </span>
-        ))}
-        <input
-          value={draft}
-          placeholder={values.length ? "" : placeholder}
-          spellCheck={false}
-          autoCapitalize="none"
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === ",") {
-              event.preventDefault();
-              add();
-            } else if (event.key === "Backspace" && !draft && values.length) {
-              onChange(values.slice(0, -1));
-            }
-          }}
-          onBlur={() => { if (draft.trim()) add(); }}
-        />
-      </div>
-    </div>
-  );
-}
-
-export function Toggle({ label, value, onChange, title }: { label: string; value: boolean; onChange: (value: boolean) => void; title?: string }) {
-  return (
-    <label className="rmon-toggle small" title={title}>
-      <input type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} />
-      {label}
-    </label>
-  );
-}
-
 const URGENCY_LABEL = { high: "High", medium: "Medium", low: "Low" } as const;
 
-function MatchRow({ match, fresh, done, replyReady, onReply, onDone }: {
-  match: Match;
+function MatchRow({ spec, match, fresh, done, replyReady, onReply, onDone }: {
+  spec: SocialEngineSpec;
+  match: SocialMatch;
   fresh: boolean;
   done?: boolean;
   replyReady: boolean;
   onReply: () => void;
   onDone: () => void;
 }) {
-  const { item, source, triage } = match;
-  const where = source.kind === "inbox" ? "Inbox" : item.subreddit ? `r/${item.subreddit}` : source.name;
-  const what = item.kind === "post" ? item.title : item.text;
-  const context = item.kind === "comment" && item.title ? `on “${item.title}”` : item.kind === "message" && item.title ? item.title : "";
+  const { item, triage } = match;
+  const context = spec.context(match);
   return (
     <div className={"xmon-post rmon-match" + (fresh ? " is-new" : "") + (done ? " is-done" : "") + ` is-${triage.urgency}`}>
       <div className="xmon-post-body">
         <div className="xmon-post-head small">
           <span className={"watchlist-chip rmon-urgency " + triage.urgency}>{URGENCY_LABEL[triage.urgency]}</span>
-          <span className="muted">{where}</span>
-          <button className="watchlist-handle" title={`Open u/${item.author}`} onClick={() => openUrl(`https://www.reddit.com/user/${item.author}`)}>
-            u/{item.author}
-          </button>
+          <span className="muted">{spec.where(match)}</span>
+          {item.author && (
+            <button className="watchlist-handle" title={`Open ${item.author}`} onClick={() => openUrl(spec.authorUrl(item.author))}>
+              {spec.handlePrefix}{item.author}
+            </button>
+          )}
           {fresh && <span className="watchlist-chip ok">New</span>}
           <span className="spacer" />
           <span className="muted">{since(item.createdAt)}</span>
         </div>
         {context && <div className="muted small rmon-context">{context}</div>}
-        {what && <div className={"xmon-post-text small" + (item.kind === "post" ? " rmon-title" : "")}>{what}</div>}
+        {item.text && <div className={"xmon-post-text small" + (item.kind === "post" || item.kind === "video" ? " rmon-title" : "")}>{item.text}</div>}
         {triage.reasons.length > 0 && <div className="muted small rmon-reasons">{triage.reasons.join(" · ")}</div>}
       </div>
       <div className="rmon-actions">
@@ -429,7 +352,7 @@ function MatchRow({ match, fresh, done, replyReady, onReply, onDone }: {
           <Icon name="square.and.pencil" size={12} /> Draft reply
         </button>
         <div className="row rmon-actions-icons">
-          <button className="plain-icon-btn" title="Open on reddit.com" onClick={() => openUrl(item.url)}>
+          <button className="plain-icon-btn" title={`Open on ${spec.site}`} onClick={() => openUrl(item.url)}>
             <Icon name="arrow.up.right.square" size={14} />
           </button>
           <button className="plain-icon-btn" title={done ? "Bring it back" : "Mark done"} aria-label={done ? "Bring it back" : "Mark done"} onClick={onDone}>

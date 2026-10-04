@@ -14,6 +14,8 @@ import { replyBudget } from "../lib/xreply/state";
 import { Icon } from "./Icon";
 import { SkillLogo } from "./SkillLogo";
 import { RedditMonitorView } from "./RedditMonitorView";
+import { SocialMonitorView } from "./SocialMonitorView";
+import { socialEngine } from "../lib/socialmonitor/engines";
 import { XMonitorView } from "./XMonitorView";
 
 type PanelMode = "reply" | "monitor";
@@ -118,6 +120,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   };
   const monitoring = !!monitor && mode === "monitor";
   const redditMonitorAccount = useStore((s) => s.redditMonitorState.account);
+  const social = socialEngine(monitor?.engine);
+  const socialAccount = useStore((s) => (social ? s.socialMonitors[social.engine]?.state.account : undefined));
 
   useEffect(() => {
     if (!engine) void loadWatchReports(entry);
@@ -247,6 +251,8 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               {monitoring
                 ? monitor.engine === "reddit-monitor"
                   ? (redditMonitorAccount?.signedIn && redditMonitorAccount.handle ? `u/${redditMonitorAccount.handle} · monitoring` : "Mentions and keywords")
+                  : social
+                    ? (socialAccount?.signedIn && socialAccount.handle ? `${social.handlePrefix}${socialAccount.handle} · monitoring` : "Mentions, comments and content")
                   : (signedIn && publisher?.handle ? `${prefix}${publisher.handle} · monitoring` : "Feed and followers")
                 : signedIn && publisher?.handle
                   ? `${prefix}${publisher.handle} · ${activeCount} watched`
@@ -281,7 +287,9 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </div>
         )}
 
-        {monitoring ? (monitor.engine === "reddit-monitor" ? <RedditMonitorView entry={entry} /> : <XMonitorView entry={entry} />) : (<>
+        {monitoring ? (social
+          ? <SocialMonitorView entry={entry} spec={social} />
+          : monitor.engine === "reddit-monitor" ? <RedditMonitorView entry={entry} /> : <XMonitorView entry={entry} />) : (<>
         {transports.length > 1 && (
           <div className="row watchlist-profile">
             <label className="muted small">Runs on</label>

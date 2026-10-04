@@ -74,7 +74,7 @@ export function repositorySkillCategories(): SkillCategory[] {
       instructions: skillInstructions,
       author: manifest.author,
       watchlist: manifest.watchlist,
-      logo: manifest.logo === "x" || manifest.logo === "reddit" ? manifest.logo : undefined,
+      logo: manifest.logo && ["x", "reddit", "instagram", "tiktok", "facebook"].includes(manifest.logo) ? manifest.logo : undefined,
       features: Array.isArray(manifest.features) ? manifest.features.filter((feature) => typeof feature === "string") : undefined,
     };
     category.entries.push(entry);

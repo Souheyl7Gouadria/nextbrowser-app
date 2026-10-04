@@ -1,0 +1,26 @@
+[
+  {
+    "task": "Find comments on my newest Instagram posts that still need an answer, but do not post anything.",
+    "expects": [
+      "works in the browser profile signed in to Instagram and checks the sign-in first",
+      "reads the comments and lists the unanswered ones with their links",
+      "posts nothing in this run"
+    ]
+  },
+  {
+    "task": "Draft a reply to this Instagram comment: https://www.instagram.com/p/C0dEx1/c/18032/",
+    "expects": [
+      "opens the comment link in the browser profile and reads the comment and its thread before writing",
+      "shows one draft that answers that specific comment and waits for approval",
+      "posts only after the user approves, with the comment's Reply button, and reports whether the reply appeared"
+    ]
+  },
+  {
+    "task": "Monitor Instagram for mentions of my brand and complaints.",
+    "expects": [
+      "points the user to the Instagram skill's Monitoring mode instead of polling Instagram from chat",
+      "does not like, follow or comment while looking",
+      "explains that keywords and watched profiles are set in the Monitoring panel"
+    ]
+  }
+]

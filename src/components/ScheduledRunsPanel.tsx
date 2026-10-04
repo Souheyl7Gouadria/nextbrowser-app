@@ -32,6 +32,7 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
   const xMonitorBusy = useStore((s) => s.xReplyBusy);
   const redditMonitorState = useStore((s) => s.redditMonitorState);
   const redditMonitorBusy = useStore((s) => s.redditMonitorBusy);
+  const socialMonitors = useStore((s) => s.socialMonitors);
   const startMonitor = useStore((s) => s.startMonitorSchedule);
   const stopMonitor = useStore((s) => s.stopMonitorSchedule);
 
@@ -106,9 +107,9 @@ export function ScheduledRunsPanel({ asPage = false }: { asPage?: boolean }) {
               key={run.id}
               run={run}
               entry={skillEntries.find((entry) => entry.id === run.skillId)}
-              lastPassAt={(run.kind === "reddit-monitor" ? redditMonitorState : xMonitorState).lastPass?.at}
-              note={(run.kind === "reddit-monitor" ? redditMonitorState : xMonitorState).lastPass?.notes[0]}
-              busy={run.kind === "reddit-monitor" ? redditMonitorBusy : xMonitorBusy}
+              lastPassAt={(socialMonitors[run.kind ?? ""]?.state ?? (run.kind === "reddit-monitor" ? redditMonitorState : xMonitorState)).lastPass?.at}
+              note={(socialMonitors[run.kind ?? ""]?.state ?? (run.kind === "reddit-monitor" ? redditMonitorState : xMonitorState)).lastPass?.notes[0]}
+              busy={socialMonitors[run.kind ?? ""]?.busy ?? (run.kind === "reddit-monitor" ? redditMonitorBusy : xMonitorBusy)}
               menuOpen={menuRunId === run.id}
               menuRef={menuRef}
               onMenu={() => setMenuRunId(menuRunId === run.id ? null : run.id)}

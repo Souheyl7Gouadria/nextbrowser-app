@@ -290,7 +290,7 @@ export interface ScheduledRun {
    *  monitoring schedule runs its skill's monitoring engine on its profile —
    *  x-monitor reads the X feed and follower count, reddit-monitor the Reddit
    *  inbox, communities and keyword search — with no agent at all. */
-  kind?: "prompt" | "x-monitor" | "reddit-monitor";
+  kind?: "prompt" | "x-monitor" | "reddit-monitor" | "instagram-monitor" | "tiktok-monitor" | "facebook-monitor";
   /** The skill a monitoring schedule belongs to. */
   skillId?: string;
 }
@@ -327,7 +327,7 @@ export function formatInterval(minutes: number): string {
 }
 
 export function isMonitorSchedule(run: ScheduledRun): boolean {
-  return run.kind === "x-monitor" || run.kind === "reddit-monitor";
+  return !!run.kind && run.kind !== "prompt";
 }
 
 export const WEEKDAY_ORDER = [2, 3, 4, 5, 6, 7, 1] as const;
