@@ -37,7 +37,13 @@ controls and reads the page's state.
 - **Keyboard shortcuts that exist for the extension:** Ctrl+Shift+X (Cmd+Shift+X on macOS)
   opens or closes the pop-up; inside the pop-up, Ctrl+Shift+F opens the selected item's
   site and fills it; Enter or Space fills the selected item in the sign-in prompt; Down
-  Arrow opens **Other options**; Esc closes the prompt.
+  Arrow opens **Other options**; Esc closes the prompt. The browser tools available to
+  the agent send single keys only (Enter, Tab, Escape, Space, Backspace, Delete, arrows),
+  so the modifier shortcuts are for the user's hands, not the agent's. The agent works
+  the sign-in prompt with Down Arrow, Enter and Escape, which need no modifiers.
+- **What the agent can and cannot click:** the page-state click tool only sees page
+  elements, and the prompt is not one. The CLI's `click-xy X Y` command clicks a viewport
+  coordinate and does reach the prompt, with the coordinates read from a screenshot.
 - **Shortcuts that must not be used:** Ctrl+Shift+L (Cmd+Shift+L) **locks** 1Password. It is
   the Bitwarden autofill shortcut, so never reuse that habit here. Ctrl+\ (Cmd+\) is
   Universal Autofill / Auto-Type of the 1Password desktop app and does nothing with the
@@ -65,15 +71,19 @@ controls and reads the page's state.
 2. Confirm the extension is present and unlocked before touching the form. A 1Password
    icon inside the focused field, or a sign-in prompt appearing at the top of the page,
    means it is installed and unlocked. If the icon or prompt shows a lock or asks for the
-   account password, go to step 7. If nothing from 1Password appears at all, press
-   Ctrl+Shift+X once to open the pop-up: a lock screen means `vault_locked`; a pop-up that
-   never opens means the extension is missing or disabled, which is `autofill_failed`
-   with that reason. Press Esc or Ctrl+Shift+X again to close the pop-up.
+   account password, go to step 7. If nothing from 1Password appears at all after
+   clicking the field and waiting two seconds, take a screenshot and look again: the
+   prompt is drawn by the extension and is invisible to page state, so only a screenshot
+   shows it. Still nothing means the extension is missing, disabled or not signed in,
+   which is `autofill_failed` with that reason.
 3. Click into the username or email field (or the password field on a password-only
-   step). 1Password shows its sign-in prompt at the top of the page with the suggested
-   Login item, and the inline 1Password icon in the field.
-4. Read the item name shown in the prompt. If it is the login the user asked for, or the
-   only sensible one, press Enter (or click **Sign in** in the prompt). With default
+   step). Wait two seconds. 1Password shows its sign-in prompt at the top of the page
+   with the suggested Login item, and the inline 1Password icon in the field.
+4. Hand the keyboard to the prompt before pressing Enter. A bare Enter in the field can be
+   taken by the page first and submit an empty form. So: press **ArrowDown** once, which
+   opens the prompt's item list and moves keyboard focus into it, then press **Enter**
+   on the highlighted item. Read the item title in the screenshot or the list first. If
+   it is the login the user asked for, or the only sensible one, Enter it. With default
    settings 1Password fills both fields and submits the form; with automatic sign-in
    turned off it only fills.
 5. If the prompt offers several items, or the suggested item is not the one the user
@@ -113,13 +123,24 @@ controls and reads the page's state.
 
 ## Recovery
 
+- If the page submitted an empty form (a validation message such as "Please enter your
+  email" and no filled values), the Enter went to the page. Reload the login page, click
+  the field, wait two seconds, press ArrowDown, then Enter. One retry only.
+- If the keyboard route fails twice, use the mouse route once: take a screenshot, find
+  the **Sign in** button in the 1Password prompt at the top of the page (or the 1Password
+  icon inside the field), and click its coordinates with the CLI, for example
+  `nbc click-xy 640 72 --profile <profile> --json`. Then take another screenshot to read
+  the result.
 - If clicking the field produced no prompt and no inline icon, click directly into the
-  password field once and retry. If still nothing, open the pop-up with Ctrl+Shift+X,
-  select the matching item there, and use its fill action. If that also does nothing,
-  report `autofill_failed`; do not fall back to typing credentials manually.
+  password field once and retry. If still nothing, report `autofill_failed`; do not fall
+  back to typing credentials manually.
 - If the prompt disappears before Enter is pressed, click the field again to bring it
   back; do not press Enter blindly, because the page's own submit handler would run on an
   empty form.
+- If the login page says the account is already signed in (for example "You are already
+  logged in as …" with a Continue button), do not submit the form and do not report
+  `filled_and_submitted`. Tell the user the browser already holds a session for that site
+  and stop, unless the user asked to sign in as a different account.
 - If the page navigates or the form is replaced mid-flow (for example a two-step login
   that shows the password field only after the email), re-identify the current form and
   repeat from step 3 on the new field. Do not restart the browser profile.
@@ -140,8 +161,10 @@ controls and reads the page's state.
   the same prompt; this skill only covers username and password Login items.
 - Business accounts can enforce **Ask before filling** and auto-lock rules that make the
   user's approval mandatory on every fill.
-- The extension's frames are invisible to page scripts, so detection relies on the
-  visible prompt and the field values, not on DOM access.
+- The extension's frames are invisible to page scripts and to page-state tools, so
+  detection relies on screenshots and on the field values, not on DOM access.
+- Pages whose form submits on Enter before the prompt can take the key need the
+  ArrowDown-then-Enter sequence; a bare Enter is not reliable across sites.
 
 ## Completion
 
