@@ -76,8 +76,12 @@ controls and reads the page's state.
    prompt is drawn by the extension and is invisible to page state, so only a screenshot
    shows it. Still nothing means the extension is missing, disabled or not signed in,
    which is `autofill_failed` with that reason.
-3. Click into the username or email field (or the password field on a password-only
-   step). Wait three seconds, then take a screenshot. Do not press any key until the
+3. Click into the **password** field whenever the page shows one, even if the username
+   field is empty or already holds a value: 1Password fills both fields from either, its
+   prompt is most reliable on the password field, and a key that slips through to the
+   page there cannot submit a half-filled form. Use the username or email field only on
+   a step that has no password field. Never treat a username the page itself pre-filled
+   as something 1Password did. Wait three seconds, then take a screenshot. Do not press any key until the
    screenshot shows 1Password's sign-in prompt at the top of the page (site name,
    username, **Sign in**) or its item list under the field. The first keypress right
    after a page load is the one that goes astray: the extension has not attached yet,
@@ -130,9 +134,11 @@ controls and reads the page's state.
 
 - Try the fill routes in this order, one attempt each, and take a screenshot after each
   to see whether the fields filled or the page submitted:
-  1. click the field, wait two seconds, ArrowDown, Enter;
-  2. if nothing filled and nothing submitted, press Escape, click the field again, wait
-     two seconds, and press Enter alone (some pages hand the key to the prompt directly);
+  1. click the password field, wait three seconds, confirm the prompt in a screenshot,
+     ArrowDown, Enter;
+  2. if nothing filled and nothing submitted, press Escape, click the password field
+     again, wait three seconds, and press Enter alone (some pages hand the key to the
+     prompt directly);
   3. the mouse route below.
 - Judge "the page submitted" only by a URL change, a loading state, or a new page in the
   screenshot. A red validation message such as "Please enter your email address" is not
