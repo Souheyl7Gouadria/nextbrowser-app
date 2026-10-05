@@ -61,6 +61,17 @@ describe("traffic gate state", () => {
     }))).toBe("open");
   });
 
+  it("does not confuse a migrated small balance with the new-account review gate", () => {
+    const migrated = proxy({
+      provider: "nodemaven", legacy_migrated: true,
+      limit_bytes: 1_010_742, remaining_bytes: 1_010_742,
+    });
+    expect(trafficGateState(migrated)).toBe("open");
+    expect(trafficAllowanceBytes(migrated)).toBe(1_010_742);
+    expect(trafficAllowanceRemainingBytes(migrated)).toBe(1_010_742);
+    expect(trafficGateState(proxy({ ...migrated, used_bytes: 1_010_742, remaining_bytes: 0, state: "exhausted" }))).toBe("open");
+  });
+
   it("reports unlimited and unknown allocations", () => {
     expect(trafficGateState(proxy({ limited: false, used_bytes: 5 * mebibyte }))).toBe("unlimited");
     expect(trafficGateState(proxy({ used_bytes: 5 * mebibyte }))).toBe("unknown");

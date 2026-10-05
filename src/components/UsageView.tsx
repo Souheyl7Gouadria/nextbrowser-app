@@ -380,7 +380,7 @@ export function UsageView() {
                   <Icon name={proxyExhausted ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"} size={18} />
                   <div>
                     <strong>{gateState === "blocked" ? "NodeMaven dashboard access" : proxyExhausted
-                      ? dashboardReady ? "Proxy traffic has run out" : "Your free 1 GB has been used"
+                      ? dashboardReady || s.proxy.legacy_migrated ? "Proxy traffic has run out" : "Your free 1 GB has been used"
                       : "Your NodeMaven account is ready"}</strong>
                     <p>
                       {gateState === "blocked" ? "Your dashboard remains available. Contact support about the paused proxy allowance before continuing browser work."
@@ -390,7 +390,9 @@ export function UsageView() {
                           : "Buy more traffic in NodeMaven to continue. We'll email you a link to set your password. Your proxy credentials stay the same."
                         : dashboardReady
                           ? "Your NodeMaven dashboard is ready whenever you need more traffic."
-                          : "Your free 1 GB is active. When you need more, we'll email you a link to set up your NodeMaven account."}
+                          : s.proxy.legacy_migrated
+                            ? "Your previous traffic balance is available. When it runs out, we'll email you a link to set up your NodeMaven account."
+                            : "Your free 1 GB is active. When you need more, we'll email you a link to set up your NodeMaven account."}
                     </p>
                     {s.proxy.provider_account_email && <span>NodeMaven account: {s.proxy.provider_account_email}</span>}
                   </div>
