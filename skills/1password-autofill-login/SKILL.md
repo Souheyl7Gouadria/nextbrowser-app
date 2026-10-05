@@ -37,13 +37,14 @@ controls and reads the page's state.
 - **Keyboard shortcuts that exist for the extension:** Ctrl+Shift+X (Cmd+Shift+X on macOS)
   opens or closes the pop-up; inside the pop-up, Ctrl+Shift+F opens the selected item's
   site and fills it; Enter or Space fills the selected item in the sign-in prompt; Down
-  Arrow opens **Other options**; Esc closes the prompt. The browser tools available to
-  the agent send single keys only (Enter, Tab, Escape, Space, Backspace, Delete, arrows),
-  so the modifier shortcuts are for the user's hands, not the agent's. The agent works
-  the sign-in prompt with Down Arrow, Enter and Escape, which need no modifiers.
+  Arrow opens **Other options**; Esc closes the prompt. Those are for a person at the
+  keyboard. The browser tools available to the agent send single keys only, and in
+  practice those keys reach the page rather than the extension's prompt, so the agent
+  does not drive the prompt by keyboard.
 - **What the agent can and cannot click:** the page-state click tool only sees page
   elements, and the prompt is not one. The CLI's `click-xy X Y` command clicks a viewport
-  coordinate and does reach the prompt, with the coordinates read from a screenshot.
+  coordinate and does reach the prompt, with the coordinates read from a screenshot. That
+  is the agent's way to operate 1Password.
 - **Shortcuts that must not be used:** Ctrl+Shift+L (Cmd+Shift+L) **locks** 1Password. It is
   the Bitwarden autofill shortcut, so never reuse that habit here. Ctrl+\ (Cmd+\) is
   Universal Autofill / Auto-Type of the 1Password desktop app and does nothing with the
@@ -88,13 +89,22 @@ controls and reads the page's state.
    the page receives the key, and an empty form gets submitted. If the screenshot shows
    no prompt, wait three more seconds, click the field again, and screenshot again, up
    to three times, before deciding anything.
-4. Once the prompt is visible, hand the keyboard to it before pressing Enter: press
-   **ArrowDown** once, which opens the prompt's item list and moves keyboard focus into
-   it, then press **Enter** on the highlighted item. Read the item title in the
-   screenshot first. If it is the login the user asked for, or the only sensible one,
-   Enter it. With default settings 1Password fills both fields and submits the form;
-   with automatic sign-in turned off it only fills. Take a screenshot afterwards to
-   confirm the fields filled or the page moved on.
+4. Fill by clicking 1Password's own UI, not by keyboard. Keys sent by the browser tools
+   land in the page, not in the extension: ArrowDown dismisses the prompt and Enter
+   submits the page's form. So, from the screenshot, locate one of these targets and
+   click it with the CLI at its screenshot coordinates:
+   - the item row in the 1Password list that opens under the focused field (site logo,
+     title, username), the largest and most reliable target; if the list is not open,
+     click the small 1Password icon at the right end of the field once to open it, then
+     screenshot again;
+   - or the **Sign in** link in the 1Password bar at the top of the page.
+   The command is `nbc click-xy X Y --profile <profile> --json`, with X and Y taken from
+   the screenshot. Check the screenshot's pixel size against the viewport size reported
+   by the page state and scale the coordinates if they differ. Read the item title first:
+   if it is the login the user asked for, or the only sensible one, click it. With
+   default settings 1Password fills both fields and submits the form; with automatic
+   sign-in turned off it only fills. Take a screenshot afterwards to confirm the fields
+   filled or the page moved on.
 5. If the prompt offers several items, or the suggested item is not the one the user
    named, press Down Arrow or select **Other options** to open the list. If the user named
    the account to use, pick exactly that item by its title or username. Otherwise do not
@@ -134,12 +144,11 @@ controls and reads the page's state.
 
 - Try the fill routes in this order, one attempt each, and take a screenshot after each
   to see whether the fields filled or the page submitted:
-  1. click the password field, wait three seconds, confirm the prompt in a screenshot,
-     ArrowDown, Enter;
-  2. if nothing filled and nothing submitted, press Escape, click the password field
-     again, wait three seconds, and press Enter alone (some pages hand the key to the
-     prompt directly);
-  3. the mouse route below.
+  1. the coordinate click on the item row under the field (step 4);
+  2. the coordinate click on **Sign in** in the top bar;
+  3. keyboard, last and once: click the password field, wait three seconds, confirm the
+     prompt in a screenshot, press Enter alone. Never press ArrowDown; it closes the
+     prompt. Keyboard is unreliable with these tools, which is why it comes last.
 - Judge "the page submitted" only by a URL change, a loading state, or a new page in the
   screenshot. A red validation message such as "Please enter your email address" is not
   evidence of a submission: many pages show it as soon as a field is focused and left
@@ -152,11 +161,8 @@ controls and reads the page's state.
   1Password or the page move to the password step, then click the password field and
   run the routine again. A filled username with the password step still pending is not
   a failure.
-- If the keyboard routes fail, use the mouse route once: take a screenshot, find
-  the **Sign in** button in the 1Password prompt at the top of the page (or the 1Password
-  icon inside the field), and click its coordinates with the CLI, for example
-  `nbc click-xy 640 72 --profile <profile> --json`. Then take another screenshot to read
-  the result.
+- Every failed Enter that reaches the page is a failed login attempt against the site,
+  and sites throttle those. Stop after the three routes; do not loop.
 - If clicking the field produced no prompt and no inline icon, click directly into the
   password field once and retry. If still nothing, report `autofill_failed`; do not fall
   back to typing credentials manually.
