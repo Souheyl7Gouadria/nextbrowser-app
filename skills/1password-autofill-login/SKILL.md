@@ -77,15 +77,20 @@ controls and reads the page's state.
    shows it. Still nothing means the extension is missing, disabled or not signed in,
    which is `autofill_failed` with that reason.
 3. Click into the username or email field (or the password field on a password-only
-   step). Wait two seconds. 1Password shows its sign-in prompt at the top of the page
-   with the suggested Login item, and the inline 1Password icon in the field.
-4. Hand the keyboard to the prompt before pressing Enter. A bare Enter in the field can be
-   taken by the page first and submit an empty form. So: press **ArrowDown** once, which
-   opens the prompt's item list and moves keyboard focus into it, then press **Enter**
-   on the highlighted item. Read the item title in the screenshot or the list first. If
-   it is the login the user asked for, or the only sensible one, Enter it. With default
-   settings 1Password fills both fields and submits the form; with automatic sign-in
-   turned off it only fills.
+   step). Wait three seconds, then take a screenshot. Do not press any key until the
+   screenshot shows 1Password's sign-in prompt at the top of the page (site name,
+   username, **Sign in**) or its item list under the field. The first keypress right
+   after a page load is the one that goes astray: the extension has not attached yet,
+   the page receives the key, and an empty form gets submitted. If the screenshot shows
+   no prompt, wait three more seconds, click the field again, and screenshot again, up
+   to three times, before deciding anything.
+4. Once the prompt is visible, hand the keyboard to it before pressing Enter: press
+   **ArrowDown** once, which opens the prompt's item list and moves keyboard focus into
+   it, then press **Enter** on the highlighted item. Read the item title in the
+   screenshot first. If it is the login the user asked for, or the only sensible one,
+   Enter it. With default settings 1Password fills both fields and submits the form;
+   with automatic sign-in turned off it only fills. Take a screenshot afterwards to
+   confirm the fields filled or the page moved on.
 5. If the prompt offers several items, or the suggested item is not the one the user
    named, press Down Arrow or select **Other options** to open the list. If the user named
    the account to use, pick exactly that item by its title or username. Otherwise do not
