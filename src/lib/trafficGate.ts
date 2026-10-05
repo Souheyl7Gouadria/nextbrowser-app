@@ -8,9 +8,8 @@ import type { ProxyTraffic } from "../types";
  * traffic pauses and the account has to ask for the rest in Discord, where an
  * admin lifts the limit by hand.
  *
- * Accounts provisioned before the gate hold a limit at or above the allowance,
- * so they are never gated — the classification below is derived from
- * `limit_bytes` alone and needs no extra backend field.
+ * Migrated legacy accounts retain their exact balance, which can be less than
+ * the new-account review threshold. The backend marks them explicitly.
  */
 export const freeTrafficAllowanceBytes = 1024 * 1024 * 1024;
 const nodeMavenTrialBytes = 1_000_000_000;
@@ -31,6 +30,7 @@ export function trafficGateState(proxyTraffic?: ProxyTraffic | null): TrafficGat
   if (!proxyTraffic) return "unknown";
   if (!proxyTraffic.limited) return "unlimited";
   if (proxyTraffic.limit_bytes == null) return "unknown";
+  if (proxyTraffic.provider === "nodemaven" && proxyTraffic.legacy_migrated) return "open";
   // NodeMaven allocates its reseller trial in decimal GB. Do not classify
   // that full 1 GB allocation as the older small-allocation Discord gate.
   if (proxyTraffic.provider === "nodemaven" && proxyTraffic.limit_bytes >= nodeMavenTrialBytes) return "open";
@@ -57,6 +57,9 @@ export function trafficAllowanceBytes(proxyTraffic?: ProxyTraffic | null): numbe
 export function trafficAllowanceRemainingBytes(proxyTraffic?: ProxyTraffic | null): number | null {
   const allowanceBytes = trafficAllowanceBytes(proxyTraffic);
   if (allowanceBytes == null || !proxyTraffic) return null;
+  if (trafficGateState(proxyTraffic) === "open" && proxyTraffic.remaining_bytes != null) {
+    return Math.max(proxyTraffic.remaining_bytes, 0);
+  }
   return Math.max(allowanceBytes - proxyTraffic.used_bytes, 0);
 }
 

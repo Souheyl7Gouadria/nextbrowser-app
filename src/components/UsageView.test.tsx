@@ -77,6 +77,18 @@ describe("NodeMaven purchase handoff", () => {
     expect(html).not.toContain("Buy traffic in NodeMaven");
   });
 
+  it("offers purchase after a migrated small balance is exhausted", () => {
+    state.proxy = {
+      provider: "nodemaven", legacy_migrated: true, limited: true,
+      used_bytes: 1_010_742, limit_bytes: 1_010_742, remaining_bytes: 0, state: "exhausted",
+      provider_account_email: "customer@example.com",
+    } as ProxyTraffic;
+    const html = renderToStaticMarkup(<UsageView />);
+    expect(html).toContain("Buy traffic in NodeMaven");
+    expect(html).toContain("Proxy traffic has run out");
+    expect(html).not.toContain("Ask in Discord");
+  });
+
   it("keeps the dashboard link visible if a previously invited account is paused", () => {
     state.proxy = {
       provider: "nodemaven", limited: true, used_bytes: 100_000_000,

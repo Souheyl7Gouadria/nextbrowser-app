@@ -10,6 +10,7 @@ export interface ProxyTraffic {
   top_up_bytes?: number | null;
   dashboard_url?: string | null;
   provider?: string | null;
+  legacy_migrated?: boolean;
   provider_account_email?: string | null;
   provider_access_method?: "password_reset" | "email_sent" | null;
   provider_access_url?: string | null;
