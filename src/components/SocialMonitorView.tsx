@@ -190,9 +190,9 @@ export function SocialMonitorView({ entry, spec }: { entry: SkillEntry; spec: So
             label={list.label}
             prefix={list.prefix}
             placeholder={list.placeholder}
-            values={strings(settings[list.key])}
+            values={list.read ? list.read(settings[list.key]) : strings(settings[list.key])}
             parse={list.parse}
-            onChange={(values) => updateSettings(spec.engine, { [list.key]: values })}
+            onChange={(values) => updateSettings(spec.engine, { [list.key]: list.write ? list.write(values) : values })}
           />
         ))}
         {spec.toggles.length > 0 && (

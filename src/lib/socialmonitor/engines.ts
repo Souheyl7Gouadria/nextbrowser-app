@@ -10,10 +10,11 @@
 
 import * as facebook from "@nextbrowser-oss/facebook-monitoring";
 import * as instagram from "@nextbrowser-oss/instagram-monitoring";
+import * as linkedin from "@nextbrowser-oss/linkedin-monitoring";
 import * as tiktok from "@nextbrowser-oss/tiktok-monitoring";
 import type { SocialEvent, SocialMatch } from "./feed";
 
-export type SocialEngineId = "instagram-monitor" | "tiktok-monitor" | "facebook-monitor";
+export type SocialEngineId = "instagram-monitor" | "tiktok-monitor" | "facebook-monitor" | "linkedin-monitor";
 
 export interface SocialAccount {
   handle?: string;
@@ -68,6 +69,10 @@ export interface TermListSpec {
   prefix?: string;
   /** Reads what a person typed: one entry or several, comma-separated. */
   parse: (text: string) => string[];
+  /** For a setting that is not a list of strings: how its value shows as
+   *  chips, and how chips go back into the setting. */
+  read?: (value: unknown) => string[];
+  write?: (values: string[]) => unknown;
 }
 
 export interface ToggleSpec {
@@ -124,7 +129,7 @@ export interface SocialEngineSpec {
   replyTask(match: SocialMatch, profileName?: string): string;
 }
 
-const MONITOR_ENGINES: SocialEngineId[] = ["instagram-monitor", "tiktok-monitor", "facebook-monitor"];
+const MONITOR_ENGINES: SocialEngineId[] = ["instagram-monitor", "tiktok-monitor", "facebook-monitor", "linkedin-monitor"];
 
 export function isSocialEngine(engine: unknown): engine is SocialEngineId {
   return MONITOR_ENGINES.includes(engine as SocialEngineId);
@@ -421,10 +426,116 @@ const facebookSpec: SocialEngineSpec = {
   },
 };
 
+interface LinkedInPost {
+  author?: string;
+  text?: string;
+}
+
+const linkedinSpec: SocialEngineSpec = {
+  engine: "linkedin-monitor",
+  name: "LinkedIn",
+  site: "linkedin.com",
+  handlePrefix: "",
+  files: { state: "linkedin-monitor-state.json", feed: "linkedin-monitor-feed.json", log: "linkedin-monitor-log.jsonl" },
+  normalizeState: (raw) => linkedin.normalizeState(raw) as SocialState,
+  withSettings: (state, patch) => linkedin.withSettings(state as linkedin.MonitorState, patch as Partial<linkedin.MonitorSettings>) as SocialState,
+  runPass: async (deps) => {
+    const result = await linkedin.runPass({ ...deps, state: deps.state as linkedin.MonitorState });
+    return {
+      state: result.state as SocialState,
+      events: result.events as unknown as SocialEvent[],
+      summary: result.summary,
+      matches: result.matches as unknown as SocialMatch[],
+    };
+  },
+  checkAccount: async (deps) => {
+    const check = await linkedin.checkAccount(deps);
+    const handle = check.name ?? check.handle;
+    return {
+      signedIn: check.signedIn,
+      ...(handle ? { handle } : {}),
+      ...(check.securityCheck ? { securityCheck: true } : {}),
+      ...(check.blocked ? { blocked: check.blocked } : {}),
+    };
+  },
+  account: (state) => {
+    const account = (state as linkedin.MonitorState).account;
+    if (!account) return undefined;
+    const handle = account.name ?? account.handle;
+    return { ...(handle ? { handle } : {}), signedIn: account.signedIn, checkedAt: account.checkedAt };
+  },
+  withAccount: (state, check, at) => {
+    const previous = (state as linkedin.MonitorState).account;
+    const name = check.handle ?? previous?.name;
+    return { ...state, account: { ...previous, ...(name ? { name } : {}), signedIn: check.signedIn, checkedAt: at } } as SocialState;
+  },
+  intro: "Mentions of you and your company always count, and so do comments on your posts. Keywords find posts and comments that name them, in search and on the accounts you watch.",
+  lists: [
+    {
+      key: "companyNames",
+      label: "Your company",
+      placeholder: "company name, as people write it",
+      parse: linkedin.splitKeywords,
+    },
+    {
+      key: "accounts",
+      label: "Accounts to watch",
+      placeholder: "profile or company link, in/name or company/name",
+      parse: (text) => text.split(/[\s,]+/).map((value) => linkedin.normalizeAccount(value)).filter((account): account is linkedin.AccountRef => !!account).map(linkedin.accountLabel),
+      read: (value) => linkedin.normalizeAccounts(value).map(linkedin.accountLabel),
+      write: (values) => values,
+    },
+    { key: "keywords", label: "Keywords", placeholder: "product, competitor or phrase", parse: linkedin.splitKeywords },
+    { key: "excludeKeywords", label: "Skip", placeholder: "words that rule a match out", parse: linkedin.splitKeywords },
+  ],
+  toggles: [
+    { key: "watchNotifications", label: "Mentions and comments" },
+    { key: "searchKeywords", label: "Search for your company and keywords", title: "A search or two per pass; LinkedIn limits searches on free accounts" },
+    { key: "watchComments", label: "Comments under posts" },
+  ],
+  canStart: (settings) => settings.watchNotifications === true || list(settings.companyNames).length > 0 || list(settings.keywords).length > 0
+    || (Array.isArray(settings.accounts) && settings.accounts.length > 0),
+  startHint: "Turn on mentions, or add your company, a keyword or an account first",
+  signedOutNote: "LinkedIn shows little signed out, so sign in",
+  followers: () => undefined,
+  where: (match) => {
+    switch (match.source.kind) {
+      case "notifications": return "Notifications";
+      case "search": return `Search “${quote(match.source.name, 40)}”`;
+      default: return match.source.name;
+    }
+  },
+  context: (match) => {
+    const post = match.item.post as LinkedInPost | undefined;
+    if (!post || match.item.kind !== "comment") {
+      const headline = match.item.authorHeadline;
+      return typeof headline === "string" && headline ? quote(headline, 90) : undefined;
+    }
+    const owner = post.author ? `${post.author}'s post` : "a post";
+    return post.text ? `on ${owner}: “${quote(post.text)}”` : `on ${owner}`;
+  },
+  authorUrl: (match) => (typeof match.item.authorUrl === "string" ? match.item.authorUrl : undefined),
+  replyTask: (match, profileName) => {
+    const { item } = match;
+    const profile = profileName ? `the browser profile "${profileName}"` : "the skill's browser profile";
+    const why = match.triage.reasons.length ? ` It was ranked ${match.triage.urgency} because: ${match.triage.reasons.join("; ")}.` : "";
+    const how = item.kind === "comment"
+      ? "Once I approve it, post it with that comment's own Reply button so it lands in its thread"
+      : "Once I approve it, post it as a comment on the post";
+    return [
+      `Draft a reply to this LinkedIn ${item.kind === "comment" ? "comment" : "post"} by ${item.author}: ${item.url}.${why}`,
+      `Work in ClawBrowser on ${profile}, which is signed in to LinkedIn. Open the link with \`nbc open --profile <profile> ${item.url}\` and read the ${item.kind === "comment" ? "comment, the post and the thread" : "whole post (press …see more if it is cut) and its comments"}. Keep it professional and specific - no sales pitch the thread did not ask for.`,
+      APPROVAL,
+      `${how}, follow the LinkedIn skill's posting steps, and report whether the reply appeared on the page. If LinkedIn asks for a security check, says the account is restricted or shows a usage limit, stop and tell me.`,
+    ].join("\n\n");
+  },
+};
+
 const SPECS: Partial<Record<SocialEngineId, SocialEngineSpec>> = {
   "instagram-monitor": instagramSpec,
   "tiktok-monitor": tiktokSpec,
   "facebook-monitor": facebookSpec,
+  "linkedin-monitor": linkedinSpec,
 };
 
 /** socialEngine returns the spec for an engine the app runs, or undefined for

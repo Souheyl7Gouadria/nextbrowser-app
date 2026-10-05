@@ -48,7 +48,7 @@ export interface SkillWatchlist {
 
 /// The built-in monitoring engines: each reads its own site through the
 /// skill's browser profile, and each is a schedule kind of its own.
-export type MonitorEngine = "x-monitor" | "reddit-monitor" | "instagram-monitor" | "tiktok-monitor" | "facebook-monitor";
+export type MonitorEngine = "x-monitor" | "reddit-monitor" | "instagram-monitor" | "tiktok-monitor" | "facebook-monitor" | "linkedin-monitor";
 
 export interface SkillWatchlistMonitor {
   engine: MonitorEngine;
@@ -165,7 +165,7 @@ export function resolveWatchlistTransport(
 export type SkillRuntime = "browser" | "cloud-phone";
 
 /// A brand mark the app draws for a skill, in place of the generic globe.
-export type SkillLogo = "x" | "reddit" | "instagram" | "tiktok" | "facebook";
+export type SkillLogo = "x" | "reddit" | "instagram" | "tiktok" | "facebook" | "linkedin";
 
 export interface SkillEntry {
   id: string;

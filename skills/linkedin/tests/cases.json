@@ -1,0 +1,26 @@
+[
+  {
+    "task": "Find LinkedIn comments on my recent posts that still need an answer, but do not post anything.",
+    "expects": [
+      "works in the browser profile signed in to LinkedIn and checks the sign-in first",
+      "lists each unanswered comment with the post it is under and its link",
+      "posts nothing in this run"
+    ]
+  },
+  {
+    "task": "Draft a reply to this LinkedIn post asking for a recommendation: https://www.linkedin.com/feed/update/urn:li:activity:7312345678901234567/",
+    "expects": [
+      "opens the post in the browser profile and reads the whole post and its comments before writing",
+      "shows one specific, non-salesy draft and waits for approval",
+      "posts only after the user approves and reports whether the comment appeared"
+    ]
+  },
+  {
+    "task": "Watch LinkedIn for people mentioning our company or asking for tools like ours.",
+    "expects": [
+      "points the user to the LinkedIn skill's Monitoring mode, its company names, keywords and accounts, instead of searching LinkedIn from chat",
+      "does not react, connect or message anyone while looking",
+      "stops and tells the user when LinkedIn asks for a security check or shows a usage limit"
+    ]
+  }
+]

@@ -9,7 +9,7 @@ const allowedPermissions = new Set(["read_page", "use_page_controls", "save_loca
 const allowedVerification = new Set(["community", "verified"]);
 // Brand marks the app draws itself. A logo it has no drawing for would render
 // as an empty tile, so the list is closed.
-const allowedLogos = new Set(["x", "reddit", "instagram", "tiktok", "facebook"]);
+const allowedLogos = new Set(["x", "reddit", "instagram", "tiktok", "facebook", "linkedin"]);
 const failures = [];
 
 for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -163,7 +163,7 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
         failures.push(`${entry.name}: watchlist.engine is not a built-in engine`);
       }
       // A second mode beside the watchlist, driven by its own built-in engine.
-      if (watchlist.monitor != null && (typeof watchlist.monitor !== "object" || !["x-monitor", "reddit-monitor", "instagram-monitor", "tiktok-monitor", "facebook-monitor"].includes(watchlist.monitor.engine))) {
+      if (watchlist.monitor != null && (typeof watchlist.monitor !== "object" || !["x-monitor", "reddit-monitor", "instagram-monitor", "tiktok-monitor", "facebook-monitor", "linkedin-monitor"].includes(watchlist.monitor.engine))) {
         failures.push(`${entry.name}: watchlist.monitor.engine is not a built-in monitor engine`);
       }
     }

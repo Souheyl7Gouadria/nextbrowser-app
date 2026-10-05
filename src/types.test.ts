@@ -84,6 +84,14 @@ describe("watched profile handles", () => {
     expect(normalizeWatchHandle("acme..shop", social)).toBe("");
     expect(normalizeWatchHandle(".acme", social)).toBe("");
   });
+
+  it("reads LinkedIn profile and company links", () => {
+    const linkedin = { maxLength: 64 };
+    expect(normalizeWatchHandle("https://www.linkedin.com/in/jane-doe-123/", linkedin)).toBe("jane-doe-123");
+    expect(normalizeWatchHandle("linkedin.com/company/acme-labs/posts/", linkedin)).toBe("acme-labs");
+    expect(normalizeWatchHandle("jane-doe", linkedin)).toBe("jane-doe");
+    expect(normalizeWatchHandle("-jane", linkedin)).toBe("");
+  });
 });
 
 describe("watchlist intervals", () => {

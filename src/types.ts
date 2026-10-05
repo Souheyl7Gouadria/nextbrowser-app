@@ -290,7 +290,7 @@ export interface ScheduledRun {
    *  monitoring schedule runs its skill's monitoring engine on its profile —
    *  x-monitor reads the X feed and follower count, reddit-monitor the Reddit
    *  inbox, communities and keyword search — with no agent at all. */
-  kind?: "prompt" | "x-monitor" | "reddit-monitor" | "instagram-monitor" | "tiktok-monitor" | "facebook-monitor";
+  kind?: "prompt" | "x-monitor" | "reddit-monitor" | "instagram-monitor" | "tiktok-monitor" | "facebook-monitor" | "linkedin-monitor";
   /** The skill a monitoring schedule belongs to. */
   skillId?: string;
 }
@@ -411,16 +411,17 @@ export interface WatchHandleOptions {
 /// normalizeWatchHandle accepts what a user actually pastes — `@handle`, a
 /// profile URL, `r/community`, a Facebook group link, or the bare name — and
 /// returns the bare handle, or an empty string when the value cannot be one.
-/// Periods are allowed inside a name, never at its ends or twice in a row:
-/// Instagram and TikTok handles and Facebook group names carry them.
+/// Periods and hyphens are allowed inside a name, never at its ends or twice in
+/// a row: Instagram and TikTok handles, Facebook group names and LinkedIn
+/// profile and company slugs carry them.
 export function normalizeWatchHandle(value: string, options: WatchHandleOptions = {}): string {
   const maxLength = options.maxLength && options.maxLength > 0 ? Math.floor(options.maxLength) : DEFAULT_WATCH_HANDLE_MAX_LENGTH;
   let handle = value.trim();
-  const url = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*[a-z0-9-]+\.[a-z]{2,}\/(?:(?:r|u|user|groups)\/)?(@?[A-Za-z0-9_.]+)/i.exec(handle);
+  const url = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*[a-z0-9-]+\.[a-z]{2,}\/(?:(?:r|u|user|groups|in|company)\/)?(@?[A-Za-z0-9_.-]+)/i.exec(handle);
   if (url) handle = url[1];
-  handle = handle.replace(/^\/?(?:r|u|user|groups)\//i, "").replace(/^@+/, "").split(/[/?#]/)[0].trim().replace(/\.+$/, "");
-  if (handle.startsWith(".") || handle.includes("..")) return "";
-  return new RegExp(`^[A-Za-z0-9_.]{1,${maxLength}}$`).test(handle) ? handle : "";
+  handle = handle.replace(/^\/?(?:r|u|user|groups|in|company)\//i, "").replace(/^@+/, "").split(/[/?#]/)[0].trim().replace(/[.-]+$/, "");
+  if (/^[.-]/.test(handle) || /[.-]{2}/.test(handle)) return "";
+  return new RegExp(`^[A-Za-z0-9_.-]{1,${maxLength}}$`).test(handle) ? handle : "";
 }
 
 export function sameWatchHandle(left: string, right: string): boolean {
