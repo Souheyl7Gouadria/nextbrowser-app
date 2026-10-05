@@ -123,10 +123,16 @@ controls and reads the page's state.
 
 ## Recovery
 
+- Try the fill routes in this order, one attempt each, and take a screenshot after each
+  to see whether the fields filled or the page submitted:
+  1. click the field, wait two seconds, ArrowDown, Enter;
+  2. if nothing filled and nothing submitted, press Escape, click the field again, wait
+     two seconds, and press Enter alone (some pages hand the key to the prompt directly);
+  3. the mouse route below.
 - If the page submitted an empty form (a validation message such as "Please enter your
-  email" and no filled values), the Enter went to the page. Reload the login page, click
-  the field, wait two seconds, press ArrowDown, then Enter. One retry only.
-- If the keyboard route fails twice, use the mouse route once: take a screenshot, find
+  email" and no filled values), the Enter went to the page. Reload the login page before
+  the next route; do not press Enter again on the same loaded form.
+- If the keyboard routes fail, use the mouse route once: take a screenshot, find
   the **Sign in** button in the 1Password prompt at the top of the page (or the 1Password
   icon inside the field), and click its coordinates with the CLI, for example
   `nbc click-xy 640 72 --profile <profile> --json`. Then take another screenshot to read
