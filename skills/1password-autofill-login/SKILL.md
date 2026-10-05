@@ -134,9 +134,18 @@ controls and reads the page's state.
   2. if nothing filled and nothing submitted, press Escape, click the field again, wait
      two seconds, and press Enter alone (some pages hand the key to the prompt directly);
   3. the mouse route below.
-- If the page submitted an empty form (a validation message such as "Please enter your
-  email" and no filled values), the Enter went to the page. Reload the login page before
-  the next route; do not press Enter again on the same loaded form.
+- Judge "the page submitted" only by a URL change, a loading state, or a new page in the
+  screenshot. A red validation message such as "Please enter your email address" is not
+  evidence of a submission: many pages show it as soon as a field is focused and left
+  empty, with nothing submitted. If the fields are still empty and the URL did not
+  change, nothing happened yet; go to the next route on the same page without reloading.
+- Only if the URL changed or the page clearly reloaded with empty fields did the Enter
+  go to the page. Then reload the login page before the next route.
+- Two-step forms (username first, then a Continue button, then the password on a new
+  step) are handled one step at a time: run the same routine on the username step, let
+  1Password or the page move to the password step, then click the password field and
+  run the routine again. A filled username with the password step still pending is not
+  a failure.
 - If the keyboard routes fail, use the mouse route once: take a screenshot, find
   the **Sign in** button in the 1Password prompt at the top of the page (or the 1Password
   icon inside the field), and click its coordinates with the CLI, for example
