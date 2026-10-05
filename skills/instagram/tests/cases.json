@@ -18,7 +18,7 @@
   {
     "task": "Monitor Instagram for mentions of my brand and complaints.",
     "expects": [
-      "points the user to the Instagram skill's Monitoring mode instead of polling Instagram from chat",
+      "points the user to the Instagram skill's Monitoring panel instead of polling Instagram from chat",
       "does not like, follow or comment while looking",
       "explains that keywords and watched profiles are set in the Monitoring panel"
     ]

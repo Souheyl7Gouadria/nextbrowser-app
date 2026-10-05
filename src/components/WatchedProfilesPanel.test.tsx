@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { normalizeState as normalizeRedditMonitorState } from "@nextbrowser-oss/reddit-monitoring";
+import { socialEngine } from "../lib/socialmonitor/engines";
+import { emptySocialFeed } from "../lib/socialmonitor/feed";
 import { emptyXReplyState } from "../lib/xreply/state";
 import type { SkillEntry } from "../skillsCatalog";
 import { WatchedProfilesPanel } from "./WatchedProfilesPanel";
@@ -51,5 +53,26 @@ describe("workspace browser selection", () => {
     fixture.state.activeWorkspaceId = "empty";
     expect(render()).not.toContain('value="local"');
     expect(render()).toContain("Choose a profile in this workspace");
+  });
+});
+
+describe("a monitoring-only skill", () => {
+  it("opens on monitoring with no switch to a reply mode", () => {
+    const spec = socialEngine("instagram-monitor")!;
+    Object.assign(fixture.state, {
+      socialMonitors: { "instagram-monitor": { state: spec.normalizeState(null), feed: emptySocialFeed(), busy: false } },
+      monitorScheduleFor: () => undefined, startMonitorSchedule: vi.fn(), stopMonitorSchedule: vi.fn(),
+      setMonitorScheduleInterval: vi.fn(), openMonitorSite: vi.fn(), updateSocialMonitorSettings: vi.fn(),
+      setSocialMatchDone: vi.fn(), draftSocialReply: vi.fn(),
+    });
+    const instagram: SkillEntry = {
+      id: "repository:instagram", title: "Instagram", subtitle: "instagram.com", selector: { kind: "domain", value: "instagram.com" },
+      category: "social", categoryTitle: "Social", categoryIcon: "globe", categoryOrder: 1,
+      watchlist: { title: "Instagram", placeholder: "profile", monitor: { engine: "instagram-monitor", label: "Monitoring", only: true } },
+    };
+    const html = renderToStaticMarkup(<WatchedProfilesPanel entry={instagram} onClose={() => {}} />);
+    expect(html).not.toContain("skill-mode-switch");
+    expect(html).not.toContain("Reply agent");
+    expect(html).toContain("Profiles to watch");
   });
 });

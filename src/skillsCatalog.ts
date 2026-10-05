@@ -54,7 +54,10 @@ export interface SkillWatchlistMonitor {
   engine: MonitorEngine;
   /// Switch labels, for example "Monitoring" and "Reply agent".
   label: string;
-  replyLabel: string;
+  replyLabel?: string;
+  /// The skill is monitoring alone: the panel opens on it with no switch,
+  /// and answering goes through Draft reply on a match.
+  only?: boolean;
 }
 
 /// Reading the signed-in account is site knowledge, so the skill carries it and

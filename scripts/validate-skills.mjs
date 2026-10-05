@@ -77,9 +77,13 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       }
       // The tasks live either on the watchlist or on each transport. Checking
       // both the same way keeps a device from shipping with no pass to run.
-      const taskHolders = Array.isArray(watchlist.transports) && watchlist.transports.length
-        ? watchlist.transports
-        : [watchlist];
+      // A monitoring-only skill has no reply pass, so no tasks to check.
+      const monitorOnly = watchlist.monitor?.only === true;
+      const taskHolders = monitorOnly
+        ? []
+        : Array.isArray(watchlist.transports) && watchlist.transports.length
+          ? watchlist.transports
+          : [watchlist];
       if (watchlist.transports != null && (!Array.isArray(watchlist.transports) || watchlist.transports.length < 2)) {
         failures.push(`${entry.name}: watchlist.transports must list at least two devices`);
       }
@@ -163,6 +167,9 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
         failures.push(`${entry.name}: watchlist.engine is not a built-in engine`);
       }
       // A second mode beside the watchlist, driven by its own built-in engine.
+      if (monitorOnly && watchlist.monitor?.engine == null) {
+        failures.push(`${entry.name}: watchlist.monitor.only needs a monitor engine`);
+      }
       if (watchlist.monitor != null && (typeof watchlist.monitor !== "object" || !["x-monitor", "reddit-monitor", "instagram-monitor", "tiktok-monitor", "facebook-monitor", "linkedin-monitor"].includes(watchlist.monitor.engine))) {
         failures.push(`${entry.name}: watchlist.monitor.engine is not a built-in monitor engine`);
       }

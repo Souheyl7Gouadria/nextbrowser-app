@@ -1,11 +1,11 @@
 {
   "id": "instagram",
   "name": "Instagram",
-  "description": "Replies and monitoring for your Instagram account.",
+  "description": "Monitoring for your Instagram account: comments, mentions and competitor posts.",
   "logo": "instagram",
   "features": [
-    "Reply agent",
-    "Monitoring"
+    "Monitoring",
+    "Draft replies"
   ],
   "author": "NextBrowser Team",
   "domains": [
@@ -29,24 +29,12 @@
     "order": 40
   },
   "watchlist": {
-    "title": "Profiles to answer",
+    "title": "Instagram",
     "placeholder": "profile without @",
-    "prefix": "@",
-    "handleMaxLength": 30,
-    "profileUrl": "https://www.instagram.com/{handle}/",
-    "stateFile": "instagram-state.json",
-    "blurb": "Profiles whose comments NextBrowser answers in your browser profile — usually your own account. Every pass finds comments nobody from the account has answered yet, shows you each draft, and posts only the replies you approve.",
-    "subscribeTask": "Add @{handle} to the Instagram reply list: open https://www.instagram.com/{handle}/ in the browser profile, confirm the profile exists and that the signed-in account can comment there, and record @{handle} in the state file with its newest post as the baseline. Reply to nothing and like nothing in this run.",
-    "checkTask": "Run one reply pass on Instagram in the browser over these profiles: {handles}. Only these profiles are on the list right now. For each, open its three newest posts and find comments newer than the recorded baseline that nobody from the signed-in account has answered. Read each comment and its thread and write a reply that answers that specific comment - never a canned line. Show me every draft before anything goes out, then post only the ones I approve with the comment's own Reply button, a few per profile, and stop at the first failure. Update the state file.",
-    "signIn": {
-      "url": "https://www.instagram.com/",
-      "probe": "(() => { const id = (document.cookie.match(/(?:^|;\\s*)ds_user_id=(\\d+)/) || [])[1] || ''; return { signed_in: !!id, handle: '' }; })()",
-      "handlePrefix": "@"
-    },
     "monitor": {
       "engine": "instagram-monitor",
       "label": "Monitoring",
-      "replyLabel": "Reply agent"
+      "only": true
     }
   }
 }

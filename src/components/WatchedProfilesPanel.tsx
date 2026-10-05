@@ -113,12 +113,13 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const [signInTried, setSignInTried] = useState(false);
   const [, setNowTick] = useState(0);
   const monitor = watchlist?.monitor;
-  const [mode, setModeState] = useState<PanelMode>(() => (monitor ? storedMode(entry.id) : "reply"));
+  const monitorOnly = monitor?.only === true;
+  const [mode, setModeState] = useState<PanelMode>(() => (monitorOnly ? "monitor" : monitor ? storedMode(entry.id) : "reply"));
   const setMode = (next: PanelMode) => {
     setModeState(next);
     try { localStorage.setItem(modeKey(entry.id), next); } catch { /* a view preference */ }
   };
-  const monitoring = !!monitor && mode === "monitor";
+  const monitoring = !!monitor && (monitorOnly || mode === "monitor");
   const redditMonitorAccount = useStore((s) => s.redditMonitorState.account);
   const social = socialEngine(monitor?.engine);
   const socialState = useStore((s) => (social ? s.socialMonitors[social.engine]?.state : undefined));
@@ -271,7 +272,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           </button>
         </div>
 
-        {monitor && (
+        {monitor && !monitorOnly && (
           <div className="skill-mode-switch" role="tablist" aria-label="What this skill does">
             {([["reply", monitor.replyLabel], ["monitor", monitor.label]] as const).map(([value, label]) => (
               <button
