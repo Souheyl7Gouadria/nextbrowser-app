@@ -4368,12 +4368,18 @@ export const useStore = create<State>((set, get) => {
         envVar: a.envVar,
         loginArgs: a.loginArgs,
       });
+      // Agents without a status command (OpenClaw, Hermes, Cline, ...) can
+      // never report a sign-in, so polling them always ended in a false
+      // "sign-in was not detected" error. Open their setup and stop there.
+      const canConfirm = !!a.statusArgs?.length;
       const cid = get().activeConvId[agentId] ?? get().activeConversation()?.id;
       if (cid) {
         const msg: ChatMessage = {
           id: uid(),
           role: "system",
-          text: `Opened Terminal to sign in to ${a.name}. Finish in your browser; this updates automatically.`,
+          text: canConfirm
+            ? `Opened Terminal to sign in to ${a.name}. Finish in your browser; this updates automatically.`
+            : `Opened Terminal to set up ${a.name}. Finish there, then send a message here.`,
           status: "done",
           createdAt: now(),
         };
@@ -4384,6 +4390,10 @@ export const useStore = create<State>((set, get) => {
           persistConvs(conversations);
           return { conversations };
         });
+      }
+      if (!canConfirm) {
+        trackEvent("agent_login_opened_unconfirmable", { agent: agentId });
+        return;
       }
       for (let i = 0; i < 24; i++) {
         await new Promise((r) => setTimeout(r, 5000));

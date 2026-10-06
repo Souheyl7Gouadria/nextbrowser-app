@@ -307,6 +307,17 @@ it("ignores a second sign-in request while one is already in flight", async () =
   expect(bridge.invoke.mock.calls.some(([command]) => command === "open_terminal_login")).toBe(false);
 });
 
+it("opens OpenClaw setup without polling for a sign-in it cannot report", async () => {
+  const { useStore } = await import("./store");
+  bridge.invoke.mockResolvedValue(null);
+  useStore.setState({ agentId: "openclaw" });
+  await useStore.getState().loginAgent();
+  const commands = bridge.invoke.mock.calls.map(([command]) => command);
+  expect(commands).toContain("open_terminal_login");
+  expect(commands).not.toContain("agent_check_login");
+  expect(useStore.getState().runtime.openclaw).toMatchObject({ authorizing: false, error: undefined });
+});
+
 it("drops queued replies when the chat is cleared", async () => {
   const { useStore } = await import("./store");
   const project = { id: "c1", title: "C", agent: "claude", messages: [], createdAt: 1, updatedAt: 1, executionTarget: "local" as const };
