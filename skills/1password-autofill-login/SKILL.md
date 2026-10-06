@@ -110,7 +110,11 @@ controls and reads the page's state.
    with the page's own **Next** or **Continue** button, a normal page element. When the
    password step appears, click the password field and run the same fill routine again.
    An interstitial such as Microsoft's "Stay signed in?" is part of the site's flow: pick
-   **No**, then continue the check. Report `filled_and_submitted` only after the
+   **No**, then continue the check. If the site offers to email or text a code *instead
+   of* the password and shows a link such as **Use your password** or **Sign in with
+   password instead**, click that link and continue with the password step; that is a
+   choice of sign-in method, not a second factor. A code demanded *after* the password
+   was accepted is a second factor and is reported as `mfa_required`. Report `filled_and_submitted` only after the
    signed-in signal of step 11; a filled first step is never a success on its own.
 6. If the prompt offers several items, or the suggested item is not the one the user
    named, press Down Arrow or select **Other options** to open the list. If the user named
