@@ -159,7 +159,7 @@ import {
   sameWatchHandle,
 } from "./types";
 import type { RotationCountry } from "./lib/countryFlag";
-import type { GitHubStarStatus } from "./lib/githubStarReward";
+import { shouldAskForGitHubStar, type GitHubStarStatus } from "./lib/githubStarReward";
 import { browserProfileContext } from "./lib/browserProfileContext";
 import { CONNECTOR_PROMPT_RESUMED_EVENT, type ConnectorPrompt } from "./connectorsCatalog";
 import { clearMultiloginSelection, multiloginSelectionForWorkspace, type MultiloginProfileSelection } from "./lib/multiloginSelection";
@@ -3384,6 +3384,8 @@ export const useStore = create<State>((set, get) => {
     // closed, so dismissing it does not bring it back on the next tick.
     const gateJustClosed =
       trafficGateState(p) === "blocked" && trafficGateState(get().proxy) !== "blocked";
+    const gateJustReopened =
+      trafficGateState(get().proxy) === "blocked" && trafficGateState(p) !== "blocked";
     const snap: UsageSnapshot = {
       id: uid(),
       date: now(),
@@ -3405,7 +3407,15 @@ export const useStore = create<State>((set, get) => {
     if (history.length > 96) history.splice(0, history.length - 96);
     void saveJson("usage-history.json", serializeUsage(history));
     set({ proxy: p, proxyWarning, usageHistory: history });
-    if (gateJustClosed) {
+    // Removing the star on GitHub freezes the limit, and starring again (the
+    // backend rechecks on its own) lifts it, both without the app asking.
+    // Re-read the star status on those edges so the prompt and the Usage card
+    // name the real cause instead of the Discord gate or a stale star ask.
+    const star = get().githubStar;
+    if ((gateJustClosed && star?.claimed) || (gateJustReopened && shouldAskForGitHubStar(star))) {
+      await get().loadGitHubStar().catch(() => undefined);
+    }
+    if (gateJustClosed && epoch === accountEpoch) {
       // A GitHub sign-up lifts its limit with a star, not a Discord message.
       if (get().githubStar?.required) get().setGitHubStarPromptOpen(true);
       else get().setTrafficGatePromptOpen(true);
@@ -4570,17 +4580,18 @@ export const useStore = create<State>((set, get) => {
 
   verifyGitHubStar: async () => {
     const epoch = accountEpoch;
+    const restored = get().githubStar?.revoked === true;
     const status = await invoke<GitHubStarStatus>("github_star_verify");
     if (epoch !== accountEpoch) return status;
     set({ githubStar: status, githubStarPromptOpen: false, trafficGatePromptOpen: false });
-    trackEvent("github_star_reward_claimed", { reward_bytes: status.rewardBytes });
+    trackEvent("github_star_reward_claimed", { reward_bytes: status.rewardBytes, restored });
     await get().loadProxy().catch(() => undefined);
     return status;
   },
 
   setGitHubStarPromptOpen: (open) => {
     if (get().githubStarPromptOpen === open) return;
-    if (open) trackEvent("github_star_prompt_shown");
+    if (open) trackEvent("github_star_prompt_shown", { revoked: get().githubStar?.revoked === true });
     set({ githubStarPromptOpen: open });
   },
 

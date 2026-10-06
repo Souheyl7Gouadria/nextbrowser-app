@@ -38,6 +38,7 @@ test("reads the star status with the account key", async (t) => {
   assert.deepEqual(status, {
     required: true,
     claimed: false,
+    revoked: false,
     repoUrl: "https://github.com/nextbrowser-oss/nextbrowser-app",
     rewardBytes: 1073741824,
   });
@@ -74,6 +75,16 @@ test("verification posts and surfaces the backend's reason", async (t) => {
   const granted = await verifyGitHubStar({ ...deps, fetchImpl: respond(200, { required: false, claimed: true, reward_bytes: 1073741824 }, []) });
   assert.equal(granted.claimed, true);
   assert.equal(granted.required, false);
+});
+
+test("a removed star comes through as revoked, and an older backend as not", () => {
+  const revoked = normalizeGitHubStarStatus({ required: true, claimed: false, revoked: true, reward_bytes: 1073741824 });
+  assert.equal(revoked.revoked, true);
+  assert.equal(revoked.required, true);
+  assert.equal(revoked.claimed, false);
+
+  assert.equal(normalizeGitHubStarStatus({ required: true, claimed: false }).revoked, false);
+  assert.equal(normalizeGitHubStarStatus({ revoked: "true" }).revoked, false);
 });
 
 test("only a GitHub URL is trusted as the repository link", () => {

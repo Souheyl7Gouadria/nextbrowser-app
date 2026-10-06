@@ -67,8 +67,8 @@ beforeEach(() => {
   bridge.invoke.mockReset();
   bridge.listen.mockReset();
   traffic = { limited: true, used_bytes: 0, limit_bytes: mebibyte, remaining_bytes: mebibyte, state: "ok" };
-  starStatus = { required: true, claimed: false, repoUrl, rewardBytes: gibibyte };
-  verifyResult = { required: false, claimed: true, repoUrl, rewardBytes: gibibyte };
+  starStatus = { required: true, claimed: false, revoked: false, repoUrl, rewardBytes: gibibyte };
+  verifyResult = { required: false, claimed: true, revoked: false, repoUrl, rewardBytes: gibibyte };
   verifyError = undefined;
   mockDesktop();
 });
@@ -121,5 +121,51 @@ describe("GitHub star reward", () => {
 
     expect(useStore.getState().githubStarPromptOpen).toBe(true);
     expect(useStore.getState().trafficGatePromptOpen).toBe(false);
+  });
+
+  it("re-reads the star when a removed star pauses the traffic mid-session, and again when it comes back", async () => {
+    const statusReads = () => bridge.invoke.mock.calls.filter(([command]) => command === "github_star_status").length;
+    const claimed = { required: false, claimed: true, revoked: false, repoUrl, rewardBytes: gibibyte };
+    const revoked = { required: true, claimed: false, revoked: true, repoUrl, rewardBytes: gibibyte };
+    starStatus = claimed;
+    traffic = { limited: true, used_bytes: 200 * mebibyte, limit_bytes: gibibyte, remaining_bytes: gibibyte - 200 * mebibyte, state: "ok" };
+    const { useStore } = await import("./store");
+    await useStore.getState().loadGitHubStar();
+    await useStore.getState().loadProxy();
+    await useStore.getState().loadProxy();
+    expect(statusReads()).toBe(1);
+
+    // The backend froze the limit at the traffic already spent.
+    starStatus = revoked;
+    traffic = { limited: true, used_bytes: 200 * mebibyte, limit_bytes: 200 * mebibyte, remaining_bytes: 0, state: "exhausted" };
+    await useStore.getState().loadProxy();
+
+    expect(useStore.getState().githubStar).toEqual(revoked);
+    expect(useStore.getState().githubStarPromptOpen).toBe(true);
+    expect(useStore.getState().trafficGatePromptOpen).toBe(false);
+    expect(statusReads()).toBe(2);
+
+    // Starred again; the backend's own recheck restored the limit.
+    starStatus = claimed;
+    traffic = { limited: true, used_bytes: 200 * mebibyte, limit_bytes: gibibyte, remaining_bytes: gibibyte - 200 * mebibyte, state: "ok" };
+    await useStore.getState().loadProxy();
+
+    expect(useStore.getState().githubStar).toEqual(claimed);
+    expect(statusReads()).toBe(3);
+  });
+
+  it("tells a restored star apart from a first claim", async () => {
+    starStatus = { required: true, claimed: false, revoked: true, repoUrl, rewardBytes: gibibyte };
+    const { useStore } = await import("./store");
+    const { trackEvent } = await import("./lib/analytics");
+    await useStore.getState().loadGitHubStar();
+    useStore.getState().setGitHubStarPromptOpen(true);
+    expect(trackEvent).toHaveBeenCalledWith("github_star_prompt_shown", { revoked: true });
+
+    await useStore.getState().verifyGitHubStar();
+
+    expect(useStore.getState().githubStar).toEqual(verifyResult);
+    expect(useStore.getState().githubStarPromptOpen).toBe(false);
+    expect(trackEvent).toHaveBeenCalledWith("github_star_reward_claimed", { reward_bytes: gibibyte, restored: true });
   });
 });
