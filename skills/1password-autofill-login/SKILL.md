@@ -72,7 +72,7 @@ controls and reads the page's state.
 2. Confirm the extension is present and unlocked before touching the form. A 1Password
    icon inside the focused field, or a sign-in prompt appearing at the top of the page,
    means it is installed and unlocked. If the icon or prompt shows a lock or asks for the
-   account password, go to step 7. If nothing from 1Password appears at all after
+   account password, go to step 8. If nothing from 1Password appears at all after
    clicking the field and waiting two seconds, take a screenshot and look again: the
    prompt is drawn by the extension and is invisible to page state, so only a screenshot
    shows it. Still nothing means the extension is missing, disabled or not signed in,
@@ -105,12 +105,19 @@ controls and reads the page's state.
    default settings 1Password fills both fields and submits the form; with automatic
    sign-in turned off it only fills. Take a screenshot afterwards to confirm the fields
    filled or the page moved on.
-5. If the prompt offers several items, or the suggested item is not the one the user
+5. Two-step sign-in pages (Google, Microsoft and similar: email first, the password on a
+   second screen) are two fills, not one. After 1Password fills the email step, advance
+   with the page's own **Next** or **Continue** button, a normal page element. When the
+   password step appears, click the password field and run the same fill routine again.
+   An interstitial such as Microsoft's "Stay signed in?" is part of the site's flow: pick
+   **No**, then continue the check. Report `filled_and_submitted` only after the
+   signed-in signal of step 11; a filled first step is never a success on its own.
+6. If the prompt offers several items, or the suggested item is not the one the user
    named, press Down Arrow or select **Other options** to open the list. If the user named
    the account to use, pick exactly that item by its title or username. Otherwise do not
    choose: press Esc, stop, and report `multiple_matches` with the visible item titles so
    the user can pick. Never fill an arbitrarily chosen item.
-6. Wait briefly for the page to react, then check which of these states resulted before
+7. Wait briefly for the page to react, then check which of these states resulted before
    doing anything else:
    - **Filled** — the username and password fields now hold values (the password shows
      as masked dots) and, with automatic sign-in on, the page is submitting.
@@ -120,21 +127,21 @@ controls and reads the page's state.
    - **Confirmation prompt** — 1Password asks the user to approve the fill (the
      **Ask before filling** setting). Leave it to the user; do not click Approve.
    - **Nothing changed** — no prompt, no inline icon, and empty fields.
-7. If 1Password is locked, do not attempt to unlock it under any circumstances: never type
+8. If 1Password is locked, do not attempt to unlock it under any circumstances: never type
    a candidate account password, never use a "forgot password" or recovery flow on the
    user's behalf. Stop and report `vault_locked`, and ask the user to unlock 1Password
    themselves. The standalone extension locks on its own after the idle time set in
    **Settings › Security**, when the device sleeps, and always when the browser quits, so
    this state is normal and not an error.
-8. If the site then asks for an MFA code, authenticator push, security key tap, or
+9. If the site then asks for an MFA code, authenticator push, security key tap, or
    passkey, do not generate, guess, retrieve, or wait indefinitely for one. 1Password may
    offer to fill a one-time code from the item; only accept that if the user asked for a
    full login and the extension offers it on its own. Otherwise stop and report
    `mfa_required`, and ask the user to supply or approve it themselves.
-9. If 1Password shows its in-page **Save** or **Update** prompt after sign-in, leave it
+10. If 1Password shows its in-page **Save** or **Update** prompt after sign-in, leave it
    as-is and tell the user it appeared rather than clicking Save, Update, or Never. That
    decision belongs to the person, not the agent.
-10. Only submit the form yourself (click the visible sign-in button) if the user asked for
+11. Only submit the form yourself (click the visible sign-in button) if the user asked for
     a full login and 1Password filled without submitting. After any submission, verify an
     actual signed-in signal, such as an account name, avatar, dashboard redirect, or
     logout link, before calling the login successful. A submitted form without one of
