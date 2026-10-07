@@ -1,6 +1,6 @@
 ---
 name: 1password-autofill-login
-description: Autofill a saved 1Password login into the currently focused sign-in form using the 1Password browser extension's own in-page sign-in prompt and inline menu, then verify the result. Use when a user asks to log in, sign in to, or fill saved credentials into a website with 1Password, including when the extension turns out to be locked, several logins match, or the site asks for a second factor.
+description: Autofill a saved 1Password login into the currently focused sign-in form of a Chromium-based (ClawBrowser) profile using the 1Password browser extension's own in-page sign-in prompt and inline menu, then verify the result. Use when a user asks to log in, sign in to, or fill saved credentials into a website with 1Password in a Chromium or ClawBrowser profile, including when the extension turns out to be locked, several logins match, or the site asks for a second factor.
 ---
 
 # 1Password Autofill Login
@@ -117,10 +117,11 @@ controls and reads the page's state.
    was accepted is a second factor and is reported as `mfa_required`. Report `filled_and_submitted` only after the
    signed-in signal of step 11; a filled first step is never a success on its own.
 6. If the prompt offers several items, or the suggested item is not the one the user
-   named, press Down Arrow or select **Other options** to open the list. If the user named
-   the account to use, pick exactly that item by its title or username. Otherwise do not
-   choose: press Esc, stop, and report `multiple_matches` with the visible item titles so
-   the user can pick. Never fill an arbitrarily chosen item.
+   named, click **Other options** in the prompt with `click-xy`, as in step 4, to open the
+   list. If the user named the account to use, click exactly that item's row by its title
+   or username. Otherwise do not choose: click nothing more, stop, and report
+   `multiple_matches` with the visible item titles so the user can pick. Never fill an
+   arbitrarily chosen item.
 7. Wait briefly for the page to react, then check which of these states resulted before
    doing anything else:
    - **Filled** — the username and password fields now hold values (the password shows
@@ -206,8 +207,9 @@ controls and reads the page's state.
   user's approval mandatory on every fill.
 - The extension's frames are invisible to page scripts and to page-state tools, so
   detection relies on screenshots and on the field values, not on DOM access.
-- Pages whose form submits on Enter before the prompt can take the key need the
-  ArrowDown-then-Enter sequence; a bare Enter is not reliable across sites.
+- Keys sent by the browser tools usually reach the page, not the prompt, so on some pages
+  Enter submits the form before 1Password can take it. That is why the keyboard route
+  comes last and runs once.
 
 ## Completion
 
