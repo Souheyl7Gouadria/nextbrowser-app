@@ -106,6 +106,8 @@ jobs:
             fi
             echo "::warning::Publishing an ad-hoc signed app without notarization. macOS will show an unidentified developer warning."
           fi
+      - name: Launch packaged app
+        run: node scripts/smoke-launch.mjs release/mac-arm64/NextBrowser.app
       - name: Publish macOS build
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
@@ -148,6 +150,8 @@ jobs:
         run: npm run test:critical
       - run: npm test
       - run: npm run dist:win
+      - name: Launch packaged app
+        run: node scripts/smoke-launch.mjs release/win-unpacked/NextBrowser.exe
       - name: Publish NSIS installer
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
