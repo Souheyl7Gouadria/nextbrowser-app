@@ -70,6 +70,8 @@ jobs:
             exit 1
           fi
           codesign --verify --deep --strict --verbose=2 "$app_path"
+      - name: Launch packaged app
+        run: node scripts/smoke-launch.mjs release/mac-arm64/NextBrowser.app
       - name: Upload macOS installers
         uses: actions/upload-artifact@v5
         with:
@@ -96,6 +98,8 @@ jobs:
       - run: npm test
       - name: Build Windows installer
         run: npm run dist:win
+      - name: Launch packaged app
+        run: node scripts/smoke-launch.mjs release/win-unpacked/NextBrowser.exe
       - name: Upload Windows installer
         uses: actions/upload-artifact@v5
         with:

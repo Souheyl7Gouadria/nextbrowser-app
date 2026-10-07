@@ -42,8 +42,24 @@ function useGitHubStarCheck(surface: "launch_modal" | "usage_card") {
   return { checking, error, openRepo, check };
 }
 
+/** A removed star gets its own words: that account already had the reward. */
+function githubStarTitle(status: GitHubStarStatus): string {
+  return status.revoked
+    ? "You removed your GitHub star"
+    : `Star Nextbrowser on GitHub to get ${githubStarRewardLabel(status)} free`;
+}
+
 function GitHubStarCopy({ status }: { status: GitHubStarStatus }) {
   const reward = githubStarRewardLabel(status);
+  if (status.revoked) {
+    return (
+      <p className="github-star-copy">
+        Your proxy traffic is paused at what you've already used. Star{" "}
+        <strong>{githubStarRepoName(status)}</strong> again and check it here to get the rest of
+        your {reward} back.
+      </p>
+    );
+  }
   return (
     <p className="github-star-copy">
       Accounts that sign in with GitHub start with 1 MB of proxy traffic. Star{" "}
@@ -55,8 +71,8 @@ function GitHubStarCopy({ status }: { status: GitHubStarStatus }) {
 
 /**
  * Asked once per launch, after sign-in and setup, while a GitHub sign-up has
- * not claimed its star reward. It can be closed: the same ask stays next to
- * the proxy traffic on the Usage page.
+ * not claimed its star reward, or has lost it by removing the star. It can be
+ * closed: the same ask stays next to the proxy traffic on the Usage page.
  */
 export function GitHubStarModal({ suppressed = false }: { suppressed?: boolean }) {
   const status = useStore((s) => s.githubStar);
@@ -91,7 +107,7 @@ export function GitHubStarModal({ suppressed = false }: { suppressed?: boolean }
         <div className="modal-title-row">
           <Icon name="star.fill" size={18} />
           <div>
-            <strong id="github-star-title">Star Nextbrowser on GitHub to get {githubStarRewardLabel(status)} free</strong>
+            <strong id="github-star-title">{githubStarTitle(status)}</strong>
           </div>
         </div>
         <GitHubStarCopy status={status} />
@@ -128,7 +144,7 @@ export function GitHubStarCard() {
     <div className="github-star-card" role="status">
       <div className="github-star-card-heading">
         <Icon name="star.fill" size={16} />
-        <strong>Star Nextbrowser on GitHub to get {githubStarRewardLabel(status)} free</strong>
+        <strong>{githubStarTitle(status)}</strong>
       </div>
       <GitHubStarCopy status={status} />
       {error && (

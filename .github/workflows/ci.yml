@@ -41,3 +41,9 @@ jobs:
       - run: npm run build
       - name: Package application without installer
         run: npm run pack
+      - name: Launch packaged app (macOS)
+        if: runner.os == 'macOS'
+        run: node scripts/smoke-launch.mjs "release-dev/mac-arm64/NextBrowser DEV.app"
+      - name: Launch packaged app (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/smoke-launch.mjs "release-dev/win-unpacked/NextBrowser DEV.exe"

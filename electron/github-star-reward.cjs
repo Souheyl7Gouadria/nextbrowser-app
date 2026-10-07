@@ -5,13 +5,16 @@ const DEFAULT_REPO_URL = "https://github.com/nextbrowser-oss/nextbrowser-app";
 
 // An account that signed in with GitHub starts with a small proxy limit and is
 // asked to star the Nextbrowser repository; the backend checks the star and
-// raises the limit once. The key stays in the main process, like every other
-// backend call the renderer asks for.
+// raises the limit once. The reward lasts while the star does: removing it
+// freezes the limit at the traffic already spent and the status comes back
+// `revoked` (older backends never send it). The key stays in the main process,
+// like every other backend call the renderer asks for.
 function normalizeGitHubStarStatus(body) {
   const rewardBytes = Number(body?.reward_bytes);
   return {
     required: body?.required === true,
     claimed: body?.claimed === true,
+    revoked: body?.revoked === true,
     repoUrl: typeof body?.repo_url === "string" && body.repo_url.startsWith("https://github.com/")
       ? body.repo_url
       : DEFAULT_REPO_URL,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { githubStarErrorMessage, githubStarRepoName, githubStarRewardLabel, shouldAskForGitHubStar } from "./githubStarReward";
 
-const status = { required: true, claimed: false, repoUrl: "https://github.com/nextbrowser-oss/nextbrowser-app", rewardBytes: 1024 ** 3 };
+const status = { required: true, claimed: false, revoked: false, repoUrl: "https://github.com/nextbrowser-oss/nextbrowser-app", rewardBytes: 1024 ** 3 };
 
 describe("githubStarReward", () => {
   it("asks only while the reward is still to claim", () => {
@@ -10,6 +10,10 @@ describe("githubStarReward", () => {
     expect(shouldAskForGitHubStar({ ...status, required: false })).toBe(false);
     expect(shouldAskForGitHubStar(null)).toBe(false);
     expect(shouldAskForGitHubStar(undefined)).toBe(false);
+  });
+
+  it("asks again once the star is removed", () => {
+    expect(shouldAskForGitHubStar({ ...status, revoked: true })).toBe(true);
   });
 
   it("names the repository and the reward", () => {
